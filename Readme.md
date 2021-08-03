@@ -1,12 +1,12 @@
 # CLR Manager
 Update manager replacement for MonoBehvaiour in Unity Engine inspired by famous [article](https://blog.unity.com/technology/1k-update-calls) about 10 000 update calls. 
 However, this implementation also offers additional features, such as:
-* Aggregation by type. As discussed [here](https://www.youtube.com/watch?v=CBP5bpwkO54), calling virtual function of the same time is much better for cache coherency and thus provides better performance.
+* Aggregation by type. As discussed [here](https://www.youtube.com/watch?v=CBP5bpwkO54), calling same virtual function is much better for cache coherency and thus provides better performance.
 
     ![](./Git/SortExample.png)
 
     Notice how objects of type `MovableObject` are coupled toghether.
-* Run.After and Run.Before attributes. Allows instances of one class to be updated before instances of another class. Works only for CLRScripts
+* Run.After and Run.Before attributes. Allows all instances of some class to be updated before instances of another class. Works only for between CLRScripts
 * Component caching. By default, any CLRScript on awake tries to cache ALL components of its game object into global dictionary. This way you can later use `this.GetUnsafe<T>` to get any component. My test shows, that this is 5-10 times faster than using GetComponent. Though this behaviour is disabable by using either attribute `[DontCacheComponents]` or disabling this behaviour entirely using define `CLR_NO_CACHE`.
 * Nice profiling. Not only it shows nice stats in Profiler windows, but string are preallocated and thus, don't cause GCAllocs every frame.
     ![](./Git/ProfilerExample.png)
