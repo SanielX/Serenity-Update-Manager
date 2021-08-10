@@ -76,23 +76,8 @@ namespace HostGame
 
         public virtual CLRSettings Setup(out bool cacheComponents)
         {
-            Calls finalCalls = 0;
-
-            Type myType = GetType();
-            Add(nameof(OnManagedStart), Calls.ManagedStart);
-            Add(nameof(OnPreUpdate),    Calls.PreUpdate);
-            Add(nameof(OnUpdate),       Calls.Update);
-            Add(nameof(OnFixedUpdate),  Calls.FixedUpdate);
-            Add(nameof(OnLateUpdate),   Calls.LateUpdate);
-            Add(nameof(OnEarlyUpdate),  Calls.EarlyUpdate);
-
-#if CLR_NO_CACHE
-            cacheComponents = false;
-#elif  CLR_ALWAYS_CACHE
-            cacheComponents = true;
-#else
-            cacheComponents = myType.GetCustomAttribute<DontCacheComponentsAttribute>() is null;
-#endif
+            Calls finalCalls = FindCallsByOverride(ScriptType);
+            cacheComponents = ScriptType.GetCustomAttribute<DontCacheComponentsAttribute>() is null;
 
 #if UNITY_EDITOR
             if (finalCalls.HasFlag(Calls.ManagedStart) &&
@@ -103,12 +88,6 @@ namespace HostGame
 #endif
 
             return new CLRSettings(finalCalls);
-
-            void Add(string method, Calls call)
-            {
-                if (ComponentHelpers.HasOverride(typeof(CLRScript).GetMethod(method), myType))
-                    finalCalls |= call;
-            }
         }
 
         public virtual void OnAwake() { }
@@ -140,5 +119,25 @@ namespace HostGame
         public virtual void OnFixedUpdate() { }
 
         public virtual void OnDestroyed() { }
+
+        internal static Calls FindCallsByOverride(Type type)
+        {
+            Calls finalCalls = 0;
+
+            Add(nameof(OnManagedStart), Calls.ManagedStart);
+            Add(nameof(OnPreUpdate), Calls.PreUpdate);
+            Add(nameof(OnUpdate), Calls.Update);
+            Add(nameof(OnFixedUpdate), Calls.FixedUpdate);
+            Add(nameof(OnLateUpdate), Calls.LateUpdate);
+            Add(nameof(OnEarlyUpdate), Calls.EarlyUpdate);
+
+            void Add(string method, Calls call)
+            {
+                if (ComponentHelpers.HasOverride(typeof(CLRScript).GetMethod(method), type))
+                    finalCalls |= call;
+            }
+
+            return finalCalls;
+        }
     }
 }

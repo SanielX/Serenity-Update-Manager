@@ -1,11 +1,9 @@
 using System;
-using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using UnityEngine;
-using UnityEngine.Experimental.AI;
 
 namespace HostGame
 {
@@ -125,13 +123,13 @@ namespace HostGame
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static int GetAllNonAlloc<T>(this Component cmp, ref T[] writeTo) where T : class
+        public static int GetAllUnsafeNonAlloc<T>(this Component cmp, ref T[] writeTo) where T : class
         {
             return ComponentManager.GetAllNonAlloc<T>(ref writeTo, cmp.gameObject);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static int GetAllNonAlloc<T>(this GameObject go, ref T[] writeTo) where T : class
+        public static int GetAllUnsafeNonAlloc<T>(this GameObject go, ref T[] writeTo) where T : class
         {
             return ComponentManager.GetAllNonAlloc<T>(ref writeTo, go);
         } 

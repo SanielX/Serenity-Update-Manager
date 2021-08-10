@@ -12,4 +12,18 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 3811eff67a53df94cb16fb9b471b4cce, type: 3}
   m_Name: CLR_Ex_Order
   m_EditorClassIdentifier: 
-  data: []
+  data:
+  - typeName: HostGame.Core.PlayerObject
+    executionIndex: -1001
+  - typeName: HostGame.Core.MoveModifierReciever
+    executionIndex: -100
+  - typeName: HostGame.Core.PlayerController
+    executionIndex: -1
+  - typeName: HostGame.Core.InteractableBase
+    executionIndex: 1
+  - typeName: HostGame.Core.MovableObject
+    executionIndex: 1
+  - typeName: HostGame.Core.PlayerCameraController
+    executionIndex: 1
+  - typeName: HostGame.ExperimentalAI.HumanoidAIController
+    executionIndex: 99

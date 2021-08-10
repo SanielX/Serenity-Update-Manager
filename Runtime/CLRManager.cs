@@ -12,16 +12,17 @@ using Debug = UnityEngine.Debug;
 namespace HostGame
 {
     [Serializable]
-    class Bucket
+    internal class Bucket
     {
         public Type ScriptType;
         public int ExecutionIndex;
         public List<CLRScript> ScriptList;
     }
 
-    class CLRManager : MonoBehaviour
+    internal class CLRManager : MonoBehaviour
     {
-#if UNITY_EDITOR 
+#if UNITY_EDITOR
+
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
         private static void Init()
         {
@@ -32,9 +33,10 @@ namespace HostGame
 
             instance = null;
         }
-#endif 
 
-        readonly struct InitCommand
+#endif
+
+        private readonly struct InitCommand
         {
             public InitCommand(CLRScript script, bool addOrRemove)
             {
@@ -43,16 +45,23 @@ namespace HostGame
             }
 
             public readonly CLRScript script;
-            public readonly bool addOrRemove;
+            public readonly bool addOrRemove;  // true is add, false is remove
         }
 
-        // This is huge hack, but otherwise we would get GC on every update
+        // This is huge hack imo, but otherwise we would get GC on every update
         private enum CallbackType
         {
-            ManagedStart = 0, Update = 1,
-            FixedUpdate = 2, LateUpdate = 3,
-            PreUpdate = 4, EarlyUpdate = 5
+            ManagedStart = -1, 
+            Update = 0,
+            FixedUpdate, 
+            LateUpdate,
+            PreUpdate, 
+            EarlyUpdate,
+
+            Count
         };
+
+        #region Profiler  
 
 #if ENABLE_PROFILER
         private Dictionary<Type, string[]> profileStrings = new Dictionary<Type, string[]>();
@@ -97,6 +106,8 @@ namespace HostGame
             Profiler.EndSample();
         }
 
+        #endregion
+
         private static CLRManager instance;
 
         public static CLRManager Instance
@@ -119,27 +130,29 @@ namespace HostGame
             }
         }
 
+        private bool mayNeedGC = false;  // sets to true after any script was removed from any list
+                                         // this allows to run deletion of buckets only when it may have sense, instead of just every N frame
         private Queue<InitCommand> initQueue = new Queue<InitCommand>(64);
 
         private int zeroPriorityIndexUpd = 0;
-        private Dictionary<Type, Bucket> managedTypeToBucket = new Dictionary<Type, Bucket>(8);
-        [SerializeField] List<Bucket> managedScripts = new List<Bucket>(8);
+        private Dictionary<Type, Bucket> managedTypeToBucket = new Dictionary<Type, Bucket>(8);  // Having dictionary allows to add scripts as O(1) operation
+        [SerializeField] private List<Bucket> managedScripts = new List<Bucket>(8);
 
         private int zeroPriorityIndexLt = 0;
         private Dictionary<Type, Bucket> managedLateTypeToBucket = new Dictionary<Type, Bucket>(4);
-        [SerializeField] List<Bucket> managedLateScripts = new List<Bucket>(4);
+        [SerializeField] private List<Bucket> managedLateScripts = new List<Bucket>(4);
 
         private int zeroPriorityIndexFx = 0;
         private Dictionary<Type, Bucket> managedFixedTypeToBucket = new Dictionary<Type, Bucket>(4);
-        [SerializeField] List<Bucket> managedFixedScripts = new List<Bucket>(4);
+        [SerializeField] private List<Bucket> managedFixedScripts = new List<Bucket>(4);
 
         private int zeroPriorityIndexPr = 0;
         private Dictionary<Type, Bucket> managedPreTypeToBucket = new Dictionary<Type, Bucket>(1);
-        [SerializeField] List<Bucket> managedPreScripts = new List<Bucket>(1);
+        [SerializeField] private List<Bucket> managedPreScripts = new List<Bucket>(1);
 
         private int zeroPriorityIndexEr = 0;
         private Dictionary<Type, Bucket> managedEarlyTypeToBucket = new Dictionary<Type, Bucket>(1);
-        [SerializeField] List<Bucket> managedEarlyScripts = new List<Bucket>(1);
+        [SerializeField] private List<Bucket> managedEarlyScripts = new List<Bucket>(1);
 
         internal static void Add(CLRScript script)
         {
@@ -152,6 +165,87 @@ namespace HostGame
         }
 
         private void EarlyUpdate()
+        {
+            InitializeQueue();
+
+            UpdateList(managedPreScripts, CallbackType.EarlyUpdate);
+        }
+
+        private void PreUpdate()
+        {
+            UpdateList(managedPreScripts, CallbackType.PreUpdate);
+        }
+
+        private void Update()
+        {
+            UpdateList(managedScripts, CallbackType.Update);
+        }
+
+        private void LateUpdate()
+        {
+            UpdateList(managedLateScripts, CallbackType.LateUpdate);
+
+            if(mayNeedGC && Time.frameCount % CLRManagerSettings.BucketGCFrequency == 0)
+            {
+                RemoveEmptyBuckets(managedEarlyScripts);
+                RemoveEmptyBuckets(managedPreScripts);
+                RemoveEmptyBuckets(managedFixedScripts);
+                RemoveEmptyBuckets(managedScripts);
+                RemoveEmptyBuckets(managedLateScripts);
+                mayNeedGC = false;
+            }
+        }
+
+        private void FixedUpdate()
+        {
+            UpdateList(managedFixedScripts, CallbackType.FixedUpdate);
+        }
+
+        // Funny enough, compiler should inline this method and remove switch!
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private void UpdateList(List<Bucket> buckets, CallbackType callback)
+        {
+            for (int i = 0; i < buckets.Count; i++)
+            {
+                for (int j = 0; j < buckets[i].ScriptList.Count; j++)
+                {
+                    CLRScript clrScript = buckets[i].ScriptList[j];  // I'd still like to make Span out of list and avoid bound check tho
+
+                    if (IsScriptActive(clrScript))
+                    {
+                        BeginProfileSample(clrScript.ScriptType, CallbackType.FixedUpdate);
+
+                        switch (callback)
+                        {
+                        case CallbackType.Update:
+                            clrScript.OnUpdate();
+                            break;
+
+                        case CallbackType.FixedUpdate:
+                            clrScript.OnFixedUpdate();
+                            break;
+
+                        case CallbackType.LateUpdate:
+                            clrScript.OnLateUpdate();
+                            break;
+
+                        case CallbackType.PreUpdate:
+                            clrScript.OnPreUpdate();
+                            break;
+
+                        case CallbackType.EarlyUpdate:
+                            clrScript.OnEarlyUpdate();
+                            break;
+                        }
+
+                        EndProfileSample();
+                    }
+                }
+            }
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private void InitializeQueue()
         {
             // Replicating OnEnable/Disable calls in order they came
             while (initQueue.Count > 0)
@@ -180,72 +274,25 @@ namespace HostGame
 
                 EndProfileSample();
             }
-
-            UpdateList(managedPreScripts, CallbackType.EarlyUpdate);
         }
 
-        private void PreUpdate()
-        {
-            UpdateList(managedPreScripts, CallbackType.PreUpdate);
-        }
-
-        private void Update()
-        {
-            UpdateList(managedScripts, CallbackType.Update);
-        }
-
-        // Life would be easier with macros huh?
-        private void LateUpdate()
-        {
-            UpdateList(managedLateScripts, CallbackType.LateUpdate);
-        }
-
-        private void FixedUpdate()
-        {
-            UpdateList(managedFixedScripts, CallbackType.FixedUpdate);
-        }
-
-        // Funny enough, compiler should inline this method and remove switch!
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        void UpdateList(List<Bucket> buckets, CallbackType callback)
+        private void RemoveEmptyBuckets(List<Bucket> buckets)
         {
             for (int i = 0; i < buckets.Count; i++)
             {
-                for (int j = 0; j < buckets[i].ScriptList.Count; j++)
+                if(buckets[i].ScriptList.Count == 0)
                 {
-                    CLRScript clrScript = buckets[i].ScriptList[j];
-
-                    if (IsScriptActive(clrScript))
-                    {
-                        BeginProfileSample(clrScript.ScriptType, CallbackType.FixedUpdate);
-
-                        switch (callback)
-                        {
-                            case CallbackType.Update:
-                                clrScript.OnUpdate();
-                                break;
-                            case CallbackType.FixedUpdate:
-                                clrScript.OnFixedUpdate();
-                                break;
-                            case CallbackType.LateUpdate:
-                                clrScript.OnLateUpdate();
-                                break;
-                            case CallbackType.PreUpdate:
-                                clrScript.OnPreUpdate();
-                                break;
-                            case CallbackType.EarlyUpdate:
-                                clrScript.OnEarlyUpdate();
-                                break;
-                        }
-
-                        EndProfileSample();
-                    }
+                    buckets.RemoveAt(i);
+                    i--;
+                    continue;
                 }
             }
         }
 
 #if UNITY_EDITOR
 
+        // This is for AppDomain disabled
         private void OnApplicationQuit()
         {
             DestroyImmediate(gameObject);
@@ -287,7 +334,7 @@ namespace HostGame
             RemoveScript(script, usedCalls);
         }
 
-        internal void RemoveScript(CLRScript script, Calls callsToRemove)
+        private void RemoveScript(CLRScript script, Calls callsToRemove)
         {
             if (callsToRemove.HasFlag(Calls.Update))
                 RemoveScriptFromList(script, managedTypeToBucket, ref zeroPriorityIndexUpd);
@@ -303,6 +350,8 @@ namespace HostGame
 
             if (callsToRemove.HasFlag(Calls.EarlyUpdate))
                 RemoveScriptFromList(script, managedEarlyTypeToBucket, ref zeroPriorityIndexEr);
+
+            mayNeedGC = true;
         }
 
         private void RemoveScriptFromList(CLRScript script, Dictionary<Type, Bucket> dict, ref int zeroPointIndex)
@@ -323,7 +372,7 @@ namespace HostGame
             bucket.ScriptList.RemoveAt(index);
         }
 
-        static void AddScriptToBucket(CLRScript script, Dictionary<Type, Bucket> dict, List<Bucket> bucketList, ref int index)
+        private static void AddScriptToBucket(CLRScript script, Dictionary<Type, Bucket> dict, List<Bucket> bucketList, ref int index)
         {
             if (dict.TryGetValue(script.ScriptType, out var bucket))
             {
@@ -440,6 +489,7 @@ namespace HostGame
         #region Player Loop Modification
 
         private struct CLRPreUpdate { }
+
         private struct CLREarlyUpdate { }
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
@@ -457,7 +507,7 @@ namespace HostGame
 #if UNITY_EDITOR  // Protection against DomainReload off
                     if (FindSubsystem(subSystems, typeof(CLREarlyUpdate)))
                         continue;
-#endif 
+#endif
 
                     Array.Resize(ref subSystems, rootSubsystems.subSystemList.Length + 1);
                     int index = subSystems.Length - 1;
@@ -476,7 +526,7 @@ namespace HostGame
 #if UNITY_EDITOR
                     if (FindSubsystem(subSystems, typeof(CLRPreUpdate)))
                         continue;
-#endif 
+#endif
                     Array.Resize(ref subSystems, rootSubsystems.subSystemList.Length + 1);
                     int index = subSystems.Length - 1;
 
@@ -486,7 +536,6 @@ namespace HostGame
                         updateDelegate = PreUpdateCallback
                     };
                 }
-
             }
 
             PlayerLoop.SetPlayerLoop(loop);
