@@ -132,30 +132,31 @@ namespace HostGame
 
         private bool mayNeedGC = false;  // sets to true after any script was removed from any list
                                          // this allows to run deletion of buckets only when it may have sense, instead of just every N frame
-        private Queue<InitCommand> initQueue = new Queue<InitCommand>(64);
+        private Queue<InitCommand> initQueue = new Queue<InitCommand>(256);
 
         private int zeroPriorityIndexUpd = 0;
         private Dictionary<Type, Bucket> managedTypeToBucket = new Dictionary<Type, Bucket>(8);  // Having dictionary allows to add scripts as O(1) operation
-        [SerializeField] private List<Bucket> managedScripts = new List<Bucket>(8);
+        private List<Bucket> managedScripts = new List<Bucket>(8);
 
         private int zeroPriorityIndexLt = 0;
         private Dictionary<Type, Bucket> managedLateTypeToBucket = new Dictionary<Type, Bucket>(4);
-        [SerializeField] private List<Bucket> managedLateScripts = new List<Bucket>(4);
+        private List<Bucket> managedLateScripts = new List<Bucket>(4);
 
         private int zeroPriorityIndexFx = 0;
         private Dictionary<Type, Bucket> managedFixedTypeToBucket = new Dictionary<Type, Bucket>(4);
-        [SerializeField] private List<Bucket> managedFixedScripts = new List<Bucket>(4);
+        private List<Bucket> managedFixedScripts = new List<Bucket>(4);
 
         private int zeroPriorityIndexPr = 0;
         private Dictionary<Type, Bucket> managedPreTypeToBucket = new Dictionary<Type, Bucket>(1);
-        [SerializeField] private List<Bucket> managedPreScripts = new List<Bucket>(1);
+        private List<Bucket> managedPreScripts = new List<Bucket>(1);
 
         private int zeroPriorityIndexEr = 0;
         private Dictionary<Type, Bucket> managedEarlyTypeToBucket = new Dictionary<Type, Bucket>(1);
-        [SerializeField] private List<Bucket> managedEarlyScripts = new List<Bucket>(1);
+        private List<Bucket> managedEarlyScripts = new List<Bucket>(1);
 
         internal static void Add(CLRScript script)
         {
+            // TODO: Support for ExecuteAlways code?
 #if UNITY_EDITOR
             if (!UnityEditor.EditorApplication.isPlaying)
                 return;
@@ -180,37 +181,29 @@ namespace HostGame
                 var command = initQueue.Dequeue();
                 CLRScript clrScript = command.script;
 
-                if (!clrScript)
+                if (clrScript is null) // Use real null check, not unity check
                     continue;
 
-                if (command.addOrRemove == false)
+                if (command.addOrRemove == false) // remove even if destroyed
                 {
-                    RemoveScript(clrScript, clrScript.__settings.UsedCalls);
+                    RemoveScript(clrScript, clrScript.__setupFlags);
                     continue;
                 }
 
-                AddScript(clrScript);
-
-                if (clrScript.__started || (clrScript.__settings.UsedCalls & Calls.ManagedStart) == 0)
-                    continue;
-
-                BeginProfileSample(clrScript.ScriptType, CallbackType.ManagedStart);
-
-                clrScript.OnManagedStart();
-                clrScript.__started = true;
-
-                EndProfileSample();
+                if(clrScript) // add if not destroyed
+                    AddScript(clrScript);
             }
 
+            // TODO: Make it work
             if (mayNeedGC &&
                (CLRManagerSettings.BucketGCFrequency != -1 &&
                 Time.frameCount % CLRManagerSettings.BucketGCFrequency == 0))
             {
-                RemoveEmptyBuckets(managedEarlyScripts);
-                RemoveEmptyBuckets(managedPreScripts);
-                RemoveEmptyBuckets(managedFixedScripts);
-                RemoveEmptyBuckets(managedScripts);
-                RemoveEmptyBuckets(managedLateScripts);
+                RemoveEmptyBuckets(managedEarlyScripts, managedEarlyTypeToBucket);
+                RemoveEmptyBuckets(managedPreScripts, managedPreTypeToBucket);
+                RemoveEmptyBuckets(managedFixedScripts, managedFixedTypeToBucket);
+                RemoveEmptyBuckets(managedScripts, managedTypeToBucket);
+                RemoveEmptyBuckets(managedLateScripts, managedLateTypeToBucket);
                 mayNeedGC = false;
             }
 
@@ -293,12 +286,13 @@ namespace HostGame
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private void RemoveEmptyBuckets(List<Bucket> buckets)
+        private void RemoveEmptyBuckets(List<Bucket> buckets, Dictionary<Type, Bucket> bucketDict)
         {
             for (int i = 0; i < buckets.Count; i++)
             {
                 if(buckets[i].ScriptList.Count == 0)
                 {
+                    bucketDict.Remove(buckets[i].ScriptType);
                     buckets.RemoveAt(i);
                     i--;
                     continue;
@@ -319,55 +313,59 @@ namespace HostGame
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private bool IsScriptActive(CLRScript s)
         {
-            return s != null && (s.__settings.NoSafetyChecks || (s.enabled && s.gameObject && s.gameObject.activeInHierarchy));
+            // Using real null check instead of what unity overrides
+            // Do unity-null check if script doesn't mind it
+            return s is { /* not null */ } && ((s.__setupFlags & CLRSetupFlags.NoSafetyChecks) != 0 || (s && s.enabled && s.gameObject && s.gameObject.activeInHierarchy));
         }
 
         #region Script List Handeling
 
         private void AddScript(CLRScript script)
         {
-            // Could be multithreaded actually
-            Calls usedCalls = script.__settings.UsedCalls;
-            if (usedCalls.HasFlag(Calls.Update))
+            CLRSetupFlags usedCalls = script.__setupFlags;
+            if (usedCalls.HasFlag(CLRSetupFlags.Update))
                 AddScriptToBucket(script, managedTypeToBucket, managedScripts, ref zeroPriorityIndexUpd);
 
-            if (usedCalls.HasFlag(Calls.LateUpdate))
+            if (usedCalls.HasFlag(CLRSetupFlags.LateUpdate))
                 AddScriptToBucket(script, managedLateTypeToBucket, managedLateScripts, ref zeroPriorityIndexLt);
 
-            if (usedCalls.HasFlag(Calls.FixedUpdate))
+            if (usedCalls.HasFlag(CLRSetupFlags.FixedUpdate))
                 AddScriptToBucket(script, managedFixedTypeToBucket, managedFixedScripts, ref zeroPriorityIndexFx);
 
-            if (usedCalls.HasFlag(Calls.PreUpdate))
+            if (usedCalls.HasFlag(CLRSetupFlags.PreUpdate))
                 AddScriptToBucket(script, managedPreTypeToBucket, managedPreScripts, ref zeroPriorityIndexPr);
 
-            if (usedCalls.HasFlag(Calls.EarlyUpdate))
+            if (usedCalls.HasFlag(CLRSetupFlags.EarlyUpdate))
                 AddScriptToBucket(script, managedEarlyTypeToBucket, managedEarlyScripts, ref zeroPriorityIndexEr);
         }
 
-        private void RemoveScript(CLRScript script, Calls callsToRemove)
+        private void RemoveScript(CLRScript script, CLRSetupFlags callsToRemove)
         {
-            if (callsToRemove.HasFlag(Calls.Update))
+            if (callsToRemove.HasFlag(CLRSetupFlags.Update))
                 RemoveScriptFromList(script, managedTypeToBucket, ref zeroPriorityIndexUpd);
 
-            if (callsToRemove.HasFlag(Calls.LateUpdate))
+            if (callsToRemove.HasFlag(CLRSetupFlags.LateUpdate))
                 RemoveScriptFromList(script, managedLateTypeToBucket, ref zeroPriorityIndexLt);
 
-            if (callsToRemove.HasFlag(Calls.FixedUpdate))
+            if (callsToRemove.HasFlag(CLRSetupFlags.FixedUpdate))
                 RemoveScriptFromList(script, managedFixedTypeToBucket, ref zeroPriorityIndexFx);
 
-            if (callsToRemove.HasFlag(Calls.PreUpdate))
+            if (callsToRemove.HasFlag(CLRSetupFlags.PreUpdate))
                 RemoveScriptFromList(script, managedPreTypeToBucket, ref zeroPriorityIndexPr);
 
-            if (callsToRemove.HasFlag(Calls.EarlyUpdate))
+            if (callsToRemove.HasFlag(CLRSetupFlags.EarlyUpdate))
                 RemoveScriptFromList(script, managedEarlyTypeToBucket, ref zeroPriorityIndexEr);
 
-            mayNeedGC = true;
+            mayNeedGC = true; 
         }
 
         private void RemoveScriptFromList(CLRScript script, Dictionary<Type, Bucket> dict, ref int zeroPointIndex)
         {
             if (!dict.TryGetValue(script.ScriptType, out var bucket))
             {
+#if UNITY_EDITOR
+                if(UnityEditor.EditorApplication.isPlaying) // It does spam about deleting destoyed stuff
+#endif
                 Debug.LogError($"Script {script} can not be removed because it was never added", script);
                 return;
             }

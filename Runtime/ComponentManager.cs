@@ -19,7 +19,7 @@ namespace HostGame
         private static IDComponentDictionary componentsStorage = new IDComponentDictionary();
         private static IDObjectDictionary intanceIDStorage = new IDObjectDictionary();
 
-        public static void AddInstance(UnityEngine.Object obj, bool throwIfExists = true)
+        public static void AddObjectInstance(UnityEngine.Object obj, bool throwIfExists = true)
         {
             if (!throwIfExists && intanceIDStorage.ContainsKey(obj.GetInstanceID()))
                 return;

@@ -24,9 +24,7 @@ namespace HostGame
         public class CLRSetupData
         {
             public string typeName;
-            public Calls usedCalls;
-            public bool  noSafetyChecks;
-            public bool  cacheComponents;
+            public CLRSetupFlags flags;
         }
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
@@ -40,7 +38,7 @@ namespace HostGame
 
         static MethodInfo SetupMethodInfo = typeof(CLRScript)
             .GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
-            .First((info) => info.Name == "Setup" && info.IsVirtual && info.ReturnType == typeof(CLRSettings));
+            .First((info) => info.Name == "Setup" && info.IsVirtual && info.ReturnType == typeof(CLRSetupFlags));
 
         private static Dictionary<string, Type>       CachedTypes = new Dictionary<string, Type>();
         private static Dictionary<Type, int>          ExecutionOrder     = new Dictionary<Type, int>();
@@ -85,14 +83,14 @@ namespace HostGame
 
                 if(!ComponentHelpers.HasOverride(SetupMethodInfo, type))
                 {
-                    var settings = CLRScript.DefaultSetupFunction(type, out var cache);
+                    var settings = CLRScript.DefaultSetupFunction(type);
 
                     var setupData = new CLRSetupData()
                     {
                         typeName = type.FullName,
-                        usedCalls = settings.UsedCalls,
-                        cacheComponents = cache,
-                        noSafetyChecks = settings.NoSafetyChecks
+                        flags = settings,
+                        // cacheComponents = cache,
+                        // noSafetyChecks = settings.NoSafetyChecks
                     };
 
                     clrSetups.Add(setupData);
@@ -190,17 +188,18 @@ namespace HostGame
                 return 0;
         }
 
-        public static bool TryGetDefaultSetup(Type type, out CLRSettings settings, out bool cacheComponents)
+        public static bool TryGetDefaultSetup(Type type, out CLRSetupFlags settings)
         {
             if(SetupData.TryGetValue(type, out var data))
             {
-                settings = new CLRSettings(data.usedCalls, data.noSafetyChecks);
-                cacheComponents = data.cacheComponents;
+                settings = data.flags;
+                // settings = new CLRSettings(data.usedCalls, data.noSafetyChecks);
+                // cacheComponents = data.cacheComponents;
                 return true;
             }
 
             settings = default;
-            cacheComponents = false;
+           //  cacheComponents = false;
             return false;
         }
 

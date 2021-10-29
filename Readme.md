@@ -7,10 +7,17 @@ However, this implementation also offers additional features, such as:
 
     Notice how objects of type `MovableObject` are coupled toghether.
 * Run.After and Run.Before attributes. Allows all instances of some class to be updated before instances of another class. Works only for between CLRScripts
-* Component caching. By default, any CLRScript on awake tries to cache ALL components of its game object into global dictionary. This way you can later use `this.GetUnsafe<T>` to get any component. My test shows, that this is 5-10 times faster than using GetComponent. Though this behaviour is disabable by using either attribute `[DontCacheComponents]` or disabling this behaviour entirely using define `CLR_NO_CACHE`.
+* Component caching. By default, any CLRScript on awake tries to cache ALL components of its game object into global dictionary. This way you can later use `this.GetUnsafe<T>` to get any component. My test shows, that this is 5-10 times faster than using GetComponent. Though this behaviour can be disabled by using attribute `[DontCacheComponents]` on class or assembly.
 * Nice profiling. Not only it shows nice stats in Profiler windows, but string are preallocated and thus, don't cause GCAllocs every frame.
     ![](./Git/ProfilerExample.png)
 * New calls. Exposes PreUpdate and EarlyUpdate as virtual functions.
+
+__Cons__:
+* Update manager does not work with [ExecuteAlways]
+* Since all update calls are now external, they can not be private
+* Also it is possible that FixedUpdate may be called before Start if object was Instantiated. This happens for default MonoBehaviours too by the way
+* Every CLRScript has Awake, Start, OnEnable, OnDisable and OnDestroyed callbacks regardless of you using them
+* Currently, CLRManager adds and removes script from its list every time you enable/disable component. So if you switch it every frame it may become a problem (May not, I didn't measure)
 
 ## Install
 To install package just use PackageManager and download it through git url, or import package into your assets folder. 
@@ -49,7 +56,7 @@ Now next 3 are new to the system:
 * OnPreUpdate - Called after FixedUpdate but before Update each frame.
 * OnManagedStart - Called before EarlyUpdate first time CLRManager picks up CLRScript.
 
-To configure which functions are called you don't need to do anything. Currently, system checks which Update functions you implement using Reflection. If you don't override Setup method, it caches results into scriptable object, which is then used to build runtime dictionaries for per-type lookup.
+To configure which functions are called you don't need to do anything. Currently, system checks which Update functions you implement using Reflection. If you don't override Setup method, system caches results into scriptable object, which is then used to build runtime dictionaries for per-type lookup.
 
 ### Advanced Setup
 If you want to configure calls yourself, you may just override `Setup` function like this:
@@ -57,23 +64,25 @@ If you want to configure calls yourself, you may just override `Setup` function 
 // Update mode has Update, FixedUpdate, LateUpdate and manual
 [SerializeField] UpdateMode m_UpdateMode = UpdateMode.LateUpdate;
 
-public override CLRSettings Setup(out bool cacheComponents)
+public override CLRSetupFlags Setup()
 {
+    CLRSetupFlags result = 0;
+
     // Should components of this game object be cached into global dictionary?
-    cacheComponents = true;
+    // It does by default
+    result |= CLRSetupFlags.DontCacheComponents;
 
     // Construct enum with calls 
-    Calls calls = 0;
     switch (m_UpdateMode)
     {
         case UpdateMode.Update:
-            calls = Calls.Update;
+            calls |= CLRSetupFlags.Update;
             break;
         case UpdateMode.FixedUpdate:
-            calls = Calls.FixedUpdate;
+            calls |= CLRSetupFlags.FixedUpdate;
             break;
         case UpdateMode.LateUpdate:
-            calls = Calls.LateUpdate;
+            calls |= CLRSetupFlags.LateUpdate;
             break;
         case UpdateMode.Manual:
             break;
@@ -83,8 +92,9 @@ public override CLRSettings Setup(out bool cacheComponents)
     // If safety checks are false, CLRManager won't check whether or 
     // not gameObject of script is null, 
     // active in hierarchy or whether component itself is enabled or not.
-    CLRSettings settings = new CLRSettings(calls, noSafeChecks: false);
-    return settings;
+    // Though CLRScript removes itself from Update list anyway when OnDisabled is called
+    result |= CLRSetupFlags.NoSafetyChecks;
+    return result;
 }
 ```
 

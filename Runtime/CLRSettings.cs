@@ -9,29 +9,20 @@ namespace HostGame
     /// Awake -> Start -> 1 frame skipped -> ManagedStart
     /// 
     [System.Flags]
-    public enum Calls
+    public enum CLRSetupFlags
     {
-        ManagedStart = 1,
         PreUpdate = 2,
         Update = 4,
         LateUpdate = 8,
         FixedUpdate = 16,
         EarlyUpdate = 32,
 
+        // Inversion so SafetyChecks and CacheComponents are default values
+        NoSafetyChecks = 256,
+        DontCacheComponents = 512,
+
         Updates = Update     | PreUpdate   |
                   LateUpdate | FixedUpdate |
                   EarlyUpdate
-    }
-
-    public readonly struct CLRSettings
-    {
-        public readonly Calls UsedCalls;
-        public readonly bool NoSafetyChecks;
-
-        public CLRSettings(Calls calls, bool noSafeChecks = false)
-        {
-            UsedCalls = calls;
-            NoSafetyChecks = noSafeChecks;
-        }
     }
 }

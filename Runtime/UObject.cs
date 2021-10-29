@@ -33,7 +33,7 @@ namespace HostGame
         /// </summary>
         public static UObject NewSafe(UnityEngine.Object obj)
         {
-            ComponentManager.AddInstance(obj, throwIfExists: false);
+            ComponentManager.AddObjectInstance(obj, throwIfExists: false);
             return (UObject)obj;
         }
 
@@ -85,7 +85,7 @@ namespace HostGame
 
         public static UObject NewSafe(UnityEngine.Object obj)
         {
-            ComponentManager.AddInstance(obj, throwIfExists: false);
+            ComponentManager.AddObjectInstance(obj, throwIfExists: false);
             return (UObject)obj;
         }
 

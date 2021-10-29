@@ -5,7 +5,7 @@ using UnityEngine;
 
 namespace HostGame
 {
-    [AttributeUsage(AttributeTargets.Class, AllowMultiple = false, Inherited = false)]
+    [AttributeUsage(AttributeTargets.Class | AttributeTargets.Assembly, AllowMultiple = false, Inherited = false)]
     public class DontCacheComponentsAttribute : Attribute { }
 
     /// <summary>
@@ -18,9 +18,7 @@ namespace HostGame
         // [HideInInspector]
         // private byte[] guid;
 
-        [@HideInInspector]
-        internal bool __started = false;
-        internal CLRSettings __settings;
+        internal CLRSetupFlags __setupFlags;
 
         public Transform iTransform => transform;
         public GameObject iGameObject => gameObject;
@@ -29,28 +27,22 @@ namespace HostGame
         [HideInInspector]
         public int ExecutionIndex { get; private set; }
 
-        private bool HasUpdates()
-        {
-            return (__settings.UsedCalls & Calls.Updates) != 0;
-        }
-
         private void Awake()
         {
             ScriptType = GetType();
             ExecutionIndex = CLRScriptDataContainer.GetExecutionOrder(ScriptType);
 
             // Caching setup calls for every type helps avoid reflection
-            bool cacheComponents;
-            if (!CLRScriptDataContainer.TryGetDefaultSetup(ScriptType, out __settings, out cacheComponents)) 
+            if (!CLRScriptDataContainer.TryGetDefaultSetup(ScriptType, out __setupFlags)) 
             {
-                __settings = Setup(out cacheComponents); // If no cached result, then do setup ourselves
+                __setupFlags = Setup(); // If no cached result, then do setup ourselves
             }
 
-            if (cacheComponents)
+            if (!__setupFlags.HasFlag(CLRSetupFlags.DontCacheComponents))
                 ComponentManager.TryRegisterComponents(gameObject);
 
-            ComponentManager.AddInstance(this);
-            ComponentManager.AddInstance(gameObject, throwIfExists: false);
+            ComponentManager.AddObjectInstance(this);
+            ComponentManager.AddObjectInstance(gameObject, throwIfExists: false);
 
             OnAwake();
         }
@@ -59,6 +51,7 @@ namespace HostGame
         {
             OnStart();
         }
+
         private void OnEnable()
         {
             if (HasUpdates())
@@ -84,9 +77,14 @@ namespace HostGame
             ComponentManager.RemoveInstance(gameObject);
         }
 
-        protected virtual CLRSettings Setup(out bool cacheComponents)
+        protected virtual CLRSetupFlags Setup()
         {
-            return DefaultSetupFunction(ScriptType, out cacheComponents);
+            return DefaultSetupFunction(ScriptType);
+        }
+
+        private bool HasUpdates()
+        {
+            return (__setupFlags & CLRSetupFlags.Updates) != 0;
         }
 
         public virtual void OnAwake() { }
@@ -96,11 +94,6 @@ namespace HostGame
         /// </summary>
         public virtual void OnStart() { }
 
-        /// <summary>
-        /// Managed Start is called one frame after usual <see cref="OnStart"/> but before first <see cref="OnUpdate"/>.
-        /// IMPORTANT: Method is only called if object has any of Update calls
-        /// </summary>
-        public virtual void OnManagedStart() { }
         public virtual void OnEnabled() { }
         public virtual void OnDisabled() { }
 
@@ -119,34 +112,27 @@ namespace HostGame
 
         public virtual void OnDestroyed() { }
 
-        internal static CLRSettings DefaultSetupFunction(Type scriptType, out bool cache)
+        internal static CLRSetupFlags DefaultSetupFunction(Type scriptType)
         {
-            Calls finalCalls = FindCallsByOverride(scriptType);
-            cache = scriptType.GetCustomAttribute<DontCacheComponentsAttribute>() is null;
+            CLRSetupFlags finalFlags = FindCallsByOverride(scriptType);
+            if (scriptType.GetCustomAttribute<DontCacheComponentsAttribute>() != null ||
+                scriptType.Assembly.GetCustomAttribute<DontCacheComponentsAttribute>() != null)
+                finalFlags |= CLRSetupFlags.DontCacheComponents;
 
-#if UNITY_EDITOR
-            if (finalCalls.HasFlag(Calls.ManagedStart) &&
-              ((finalCalls & Calls.Updates) == 0))
-            {
-                Debug.LogError("Method overrides OnManagedStart but doesn't have any Update method. ManagedStart won't be called");
-            }
-#endif
-
-            return new CLRSettings(finalCalls);
+            return finalFlags;
         }
 
-        internal static Calls FindCallsByOverride(Type type)
+        internal static CLRSetupFlags FindCallsByOverride(Type type)
         {
-            Calls finalCalls = 0;
+            CLRSetupFlags finalCalls = 0;
 
-            Add(nameof(OnManagedStart), Calls.ManagedStart);
-            Add(nameof(OnPreUpdate), Calls.PreUpdate);
-            Add(nameof(OnUpdate), Calls.Update);
-            Add(nameof(OnFixedUpdate), Calls.FixedUpdate);
-            Add(nameof(OnLateUpdate), Calls.LateUpdate);
-            Add(nameof(OnEarlyUpdate), Calls.EarlyUpdate);
+            Add(nameof(OnPreUpdate),   CLRSetupFlags.PreUpdate);
+            Add(nameof(OnUpdate),      CLRSetupFlags.Update);
+            Add(nameof(OnFixedUpdate), CLRSetupFlags.FixedUpdate);
+            Add(nameof(OnLateUpdate),  CLRSetupFlags.LateUpdate);
+            Add(nameof(OnEarlyUpdate), CLRSetupFlags.EarlyUpdate);
 
-            void Add(string method, Calls call)
+            void Add(string method, CLRSetupFlags call)
             {
                 if (ComponentHelpers.HasOverride(typeof(CLRScript).GetMethod(method), type))
                     finalCalls |= call;
