@@ -13,11 +13,14 @@ However, this implementation also offers additional features, such as:
 * New calls. Exposes PreUpdate and EarlyUpdate as virtual functions.
 
 ## Install
-To instal package just use PackageManager and download it through git url, or import package into your assets folder.
+To install package just use PackageManager and download it through git url, or import package into your assets folder. 
+Minimum supported unity version is 2021.1. I didn't check if it will work on older versions.
 
 ## Quick Start
 To start using new manager you need to derive you script from `CLRScript` (in `HostGame` namespace). Now the only difference between this manager and MonoBehvaiour is that instead of typing `void Update` you need to use virtual methods so it'll look like `public override void OnUpdate()`. Just create the script and following example should work, no setup required:
 ```csharp
+using HostGame;
+
 class MyClass : CLRScript 
 {
     public override void OnUpdate()
@@ -28,7 +31,7 @@ class MyClass : CLRScript
 ```
 There is also a file in Resources folder called `CLR_Ex_Order.asset`. You should add this to your gitignore, since this file is generated automatically each recompile.
 
-_Note: Exceptions are not handled by CLRManager. If any of your scripts throws whole loop will be aborted_
+_Note: Exceptions are handled if UNITY_ASSERTIONS is enabled. Otherwise, if any of your scripts throws whole loop will be aborted_
 
 ## Available methods
 Next methods are just mimicing MonoBehaviour methods:
@@ -46,7 +49,7 @@ Now next 3 are new to the system:
 * OnPreUpdate - Called after FixedUpdate but before Update each frame.
 * OnManagedStart - Called before EarlyUpdate first time CLRManager picks up CLRScript.
 
-To configure which functions are called you don't need to do anything. Currently, system checks which Update functions you implement using Reflection. Which may __seem__ like a slow operation, but after testing 700 objects I didn't find any big problem with this approach. In future I plan to generate Setup functions using Source Generators.
+To configure which functions are called you don't need to do anything. Currently, system checks which Update functions you implement using Reflection. If you don't override Setup method, it caches results into scriptable object, which is then used to build runtime dictionaries for per-type lookup.
 
 ### Advanced Setup
 If you want to configure calls yourself, you may just override `Setup` function like this:
