@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Reflection;
 using UnityEngine;
 
@@ -12,12 +13,12 @@ namespace HostGame
     /// </summary>
     public abstract class CLRScript : MonoBehaviour, IGOComponent
     {
-        // TODO: Unique identifier for each CLRScript
+        // TODO: Persistent unique identifier for each CLRScript
         // [SerializeField]
         // [HideInInspector]
         // private byte[] guid;
 
-        [HideInInspector]
+        [@HideInInspector]
         internal bool __started = false;
         internal CLRSettings __settings;
 
@@ -36,10 +37,20 @@ namespace HostGame
         private void Awake()
         {
             ScriptType = GetType();
-            ExecutionIndex = CLRExecutionOrderContainer.Container.GetExecutionOrder(ScriptType);
-            __settings = Setup(out bool cacheComponents);
+            ExecutionIndex = CLRScriptDataContainer.GetExecutionOrder(ScriptType);
+
+            // Caching setup calls for every type helps avoid reflection
+            bool cacheComponents;
+            if (!CLRScriptDataContainer.TryGetDefaultSetup(ScriptType, out __settings, out cacheComponents)) 
+            {
+                __settings = Setup(out cacheComponents); // If no cached result, then do setup ourselves
+            }
+
             if (cacheComponents)
                 ComponentManager.TryRegisterComponents(gameObject);
+
+            ComponentManager.AddInstance(this);
+            ComponentManager.AddInstance(gameObject, throwIfExists: false);
 
             OnAwake();
         }
@@ -69,25 +80,13 @@ namespace HostGame
             OnDestroyed();
 
             ComponentManager.UnregisterComponents(gameObject);
-
-            if (HasUpdates())
-                CLRManager.Remove(this);
+            ComponentManager.RemoveInstance(this);
+            ComponentManager.RemoveInstance(gameObject);
         }
 
-        public virtual CLRSettings Setup(out bool cacheComponents)
+        protected virtual CLRSettings Setup(out bool cacheComponents)
         {
-            Calls finalCalls = FindCallsByOverride(ScriptType);
-            cacheComponents = ScriptType.GetCustomAttribute<DontCacheComponentsAttribute>() is null;
-
-#if UNITY_EDITOR
-            if (finalCalls.HasFlag(Calls.ManagedStart) &&
-              ((finalCalls & Calls.Updates) == 0))
-            {
-                Debug.LogError("Method overrides OnManagedStart but doesn't have any Update method. ManagedStart won't be called", this);
-            }
-#endif
-
-            return new CLRSettings(finalCalls);
+            return DefaultSetupFunction(ScriptType, out cacheComponents);
         }
 
         public virtual void OnAwake() { }
@@ -119,6 +118,22 @@ namespace HostGame
         public virtual void OnFixedUpdate() { }
 
         public virtual void OnDestroyed() { }
+
+        internal static CLRSettings DefaultSetupFunction(Type scriptType, out bool cache)
+        {
+            Calls finalCalls = FindCallsByOverride(scriptType);
+            cache = scriptType.GetCustomAttribute<DontCacheComponentsAttribute>() is null;
+
+#if UNITY_EDITOR
+            if (finalCalls.HasFlag(Calls.ManagedStart) &&
+              ((finalCalls & Calls.Updates) == 0))
+            {
+                Debug.LogError("Method overrides OnManagedStart but doesn't have any Update method. ManagedStart won't be called");
+            }
+#endif
+
+            return new CLRSettings(finalCalls);
+        }
 
         internal static Calls FindCallsByOverride(Type type)
         {

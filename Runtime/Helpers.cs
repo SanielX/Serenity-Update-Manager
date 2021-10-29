@@ -5,9 +5,10 @@ using System.Reflection;
 using System.Runtime.CompilerServices;
 using UnityEngine;
 
+#nullable enable
 namespace HostGame
 {
-    public static class ComponentHelpers 
+    internal static class ComponentHelpers 
     {
         public static List<Type> GetAllCasts(Type t)
         {
@@ -31,13 +32,19 @@ namespace HostGame
             return allCasts;
         }
 
-        public static Dictionary<Type, List<object>> CacheComponents(GameObject go)
+        public static Dictionary<Type, List<object>> GetAllComponents(GameObject go)
         {
             var typeToComponents = new Dictionary<Type, List<object>>();
             var allComponents = go.GetComponents<Component>();
 
             foreach (var comp in allComponents)
             {
+                if(!comp)
+                {
+                    Debug.LogError($"Component on game object {go.name} is null. Check for missing scripts", go);
+                    continue;
+                }
+
                 List<Type> myTypes = GetAllCasts(comp.GetType());
 
                 foreach (var type in myTypes)
@@ -62,8 +69,13 @@ namespace HostGame
                                               BindingFlags.DeclaredOnly |
                                               BindingFlags.Public       |
                                               BindingFlags.NonPublic);
-                if (methods.Any(m => m.GetBaseDefinition() == baseMethod))
-                    return true;
+
+                for(int i = 0; i < methods.Length; i++)
+                {
+                    if (methods[i].GetBaseDefinition() == baseMethod)
+                        return true;
+                }
+
                 type = type.BaseType;
             }
             return false;
@@ -86,7 +98,7 @@ namespace HostGame
     public static class ComponentExtensions
     {
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static T GetUnsafe<T>(this GameObject go) where T : class
+        public static T? GetUnsafe<T>(this GameObject go) where T : class
         {
             return ComponentManager.GetUnsafe<T>(go);
         }
@@ -97,27 +109,27 @@ namespace HostGame
         /// If CLRScript has caching enabled components will be available after Awake call from Unity.
         /// </summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static T GetUnsafe<T>(this Component cmp) where T : class
+        public static T? GetUnsafe<T>(this Component cmp) where T : class
         {
             return ComponentManager.GetUnsafe<T>(cmp.gameObject);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static bool TryGetUnsafe<T>(this Component cmp, out T result) where T : class
+        public static bool TryGetUnsafe<T>(this Component cmp, out T? result) where T : class
         {
             result = GetUnsafe<T>(cmp);
             return result != null;
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static bool TryGetUnsafe<T>(this GameObject go, out T result) where T : class
+        public static bool TryGetUnsafe<T>(this GameObject go, out T? result) where T : class
         {
             result = GetUnsafe<T>(go);
             return result != null;
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static T[] GetAllUnsafe<T>(this Component cmp) where T : class
+        public static T[]? GetAllUnsafe<T>(this Component cmp) where T : class
         {
             return ComponentManager.GetAll<T>(cmp.gameObject);
         }

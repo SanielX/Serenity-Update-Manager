@@ -11,16 +11,16 @@ using Debug = UnityEngine.Debug;
 
 namespace HostGame
 {
-    [Serializable]
-    internal class Bucket
-    {
-        public Type ScriptType;
-        public int ExecutionIndex;
-        public List<CLRScript> ScriptList;
-    }
-
     internal class CLRManager : MonoBehaviour
     {
+        [Serializable]  // Just to be able to view it in editor
+        internal class Bucket  // All scripts within bucket have same type
+        {
+            public Type ScriptType;
+            public int ExecutionIndex;
+            public List<CLRScript> ScriptList;
+        }
+
 #if UNITY_EDITOR
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
@@ -88,7 +88,7 @@ namespace HostGame
             if (!profileStrings.TryGetValue(t, out var strings))
                 AddTypeToProfileStrings(t, out strings);
 
-            return strings[(int)callback];
+            return strings[(int)callback + 1];
 #else
             return null;
 #endif
@@ -156,17 +156,63 @@ namespace HostGame
 
         internal static void Add(CLRScript script)
         {
+#if UNITY_EDITOR
+            if (!UnityEditor.EditorApplication.isPlaying)
+                return;
+#endif 
             Instance.initQueue.Enqueue(new InitCommand(script, true));
         }
 
         internal static void Remove(CLRScript script)
         {
+#if UNITY_EDITOR
+            if (!UnityEditor.EditorApplication.isPlaying)
+                return;
+#endif 
             Instance.initQueue.Enqueue(new InitCommand(script, false));
         }
 
         private void EarlyUpdate()
         {
-            InitializeQueue();
+            // Replicating OnEnable/Disable calls in order they came
+            while (initQueue.Count > 0)
+            {
+                var command = initQueue.Dequeue();
+                CLRScript clrScript = command.script;
+
+                if (!clrScript)
+                    continue;
+
+                if (command.addOrRemove == false)
+                {
+                    RemoveScript(clrScript, clrScript.__settings.UsedCalls);
+                    continue;
+                }
+
+                AddScript(clrScript);
+
+                if (clrScript.__started || (clrScript.__settings.UsedCalls & Calls.ManagedStart) == 0)
+                    continue;
+
+                BeginProfileSample(clrScript.ScriptType, CallbackType.ManagedStart);
+
+                clrScript.OnManagedStart();
+                clrScript.__started = true;
+
+                EndProfileSample();
+            }
+
+            if (mayNeedGC &&
+               (CLRManagerSettings.BucketGCFrequency != -1 &&
+                Time.frameCount % CLRManagerSettings.BucketGCFrequency == 0))
+            {
+                RemoveEmptyBuckets(managedEarlyScripts);
+                RemoveEmptyBuckets(managedPreScripts);
+                RemoveEmptyBuckets(managedFixedScripts);
+                RemoveEmptyBuckets(managedScripts);
+                RemoveEmptyBuckets(managedLateScripts);
+                mayNeedGC = false;
+            }
 
             UpdateList(managedPreScripts, CallbackType.EarlyUpdate);
         }
@@ -184,16 +230,6 @@ namespace HostGame
         private void LateUpdate()
         {
             UpdateList(managedLateScripts, CallbackType.LateUpdate);
-
-            if(mayNeedGC && Time.frameCount % CLRManagerSettings.BucketGCFrequency == 0)
-            {
-                RemoveEmptyBuckets(managedEarlyScripts);
-                RemoveEmptyBuckets(managedPreScripts);
-                RemoveEmptyBuckets(managedFixedScripts);
-                RemoveEmptyBuckets(managedScripts);
-                RemoveEmptyBuckets(managedLateScripts);
-                mayNeedGC = false;
-            }
         }
 
         private void FixedUpdate()
@@ -213,66 +249,46 @@ namespace HostGame
 
                     if (IsScriptActive(clrScript))
                     {
-                        BeginProfileSample(clrScript.ScriptType, CallbackType.FixedUpdate);
-
-                        switch (callback)
+#if UNITY_ASSERTIONS
+                        try
                         {
-                        case CallbackType.Update:
-                            clrScript.OnUpdate();
-                            break;
+#endif
+                            BeginProfileSample(clrScript.ScriptType, callback);
 
-                        case CallbackType.FixedUpdate:
-                            clrScript.OnFixedUpdate();
-                            break;
+                            switch (callback)
+                            {
+                            case CallbackType.Update:
+                                clrScript.OnUpdate();
+                                break;
 
-                        case CallbackType.LateUpdate:
-                            clrScript.OnLateUpdate();
-                            break;
+                            case CallbackType.FixedUpdate:
+                                clrScript.OnFixedUpdate();
+                                break;
 
-                        case CallbackType.PreUpdate:
-                            clrScript.OnPreUpdate();
-                            break;
+                            case CallbackType.LateUpdate:
+                                clrScript.OnLateUpdate();
+                                break;
 
-                        case CallbackType.EarlyUpdate:
-                            clrScript.OnEarlyUpdate();
-                            break;
+                            case CallbackType.PreUpdate:
+                                clrScript.OnPreUpdate();
+                                break;
+
+                            case CallbackType.EarlyUpdate:
+                                clrScript.OnEarlyUpdate();
+                                break;
+                            }
+
+                            EndProfileSample();
+
+#if UNITY_ASSERTIONS
                         }
-
-                        EndProfileSample();
-                    }
+                        catch (System.Exception e)
+                        {
+                            Debug.LogException(e);
+                        }
+#endif 
+                        }
                 }
-            }
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private void InitializeQueue()
-        {
-            // Replicating OnEnable/Disable calls in order they came
-            while (initQueue.Count > 0)
-            {
-                var command = initQueue.Dequeue();
-                CLRScript clrScript = command.script;
-
-                if (clrScript == null)
-                    continue;
-
-                if (command.addOrRemove == false)
-                {
-                    RemoveScript(clrScript);
-                    continue;
-                }
-
-                AddScript(clrScript);
-
-                if (clrScript.__started || (clrScript.__settings.UsedCalls & Calls.ManagedStart) == 0)
-                    continue;
-
-                BeginProfileSample(clrScript.ScriptType, CallbackType.ManagedStart);
-
-                clrScript.OnManagedStart();
-                clrScript.__started = true;
-
-                EndProfileSample();
             }
         }
 
@@ -326,12 +342,6 @@ namespace HostGame
 
             if (usedCalls.HasFlag(Calls.EarlyUpdate))
                 AddScriptToBucket(script, managedEarlyTypeToBucket, managedEarlyScripts, ref zeroPriorityIndexEr);
-        }
-
-        internal void RemoveScript(CLRScript script)
-        {
-            Calls usedCalls = script.__settings.UsedCalls;
-            RemoveScript(script, usedCalls);
         }
 
         private void RemoveScript(CLRScript script, Calls callsToRemove)
@@ -493,7 +503,7 @@ namespace HostGame
         private struct CLREarlyUpdate { }
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
-        private static void RegisterEarlyUpdate()
+        private static void RegisterCustomUpdates()
         {
             var loop = PlayerLoop.GetCurrentPlayerLoop();
 

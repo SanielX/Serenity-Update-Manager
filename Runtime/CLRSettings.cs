@@ -8,6 +8,7 @@ namespace HostGame
     /// For start functions it goes like this:
     /// Awake -> Start -> 1 frame skipped -> ManagedStart
     /// 
+    [System.Flags]
     public enum Calls
     {
         ManagedStart = 1,

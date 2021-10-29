@@ -7,7 +7,7 @@ namespace HostGame
 {
     public class Run
     {
-        [AttributeUsage(AttributeTargets.Class, AllowMultiple = true, Inherited = true)]
+        [AttributeUsage(AttributeTargets.Class, AllowMultiple = false, Inherited = true)]
         public class BeforeAttribute : Attribute
         {
             public BeforeAttribute(Type type)
@@ -21,7 +21,7 @@ namespace HostGame
             public Type targetType;
         }
 
-        [AttributeUsage(AttributeTargets.Class, AllowMultiple = true, Inherited = true)]
+        [AttributeUsage(AttributeTargets.Class, AllowMultiple = false, Inherited = true)]
         public class AfterAttribute : Attribute
         {
             public AfterAttribute(Type type)
