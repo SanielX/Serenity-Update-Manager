@@ -54,7 +54,6 @@ Next methods are just mimicing MonoBehaviour methods:
 Now next 3 are new to the system:
 * OnEarlyUpdate - Called at the start of each frame even before FixedUpdate.
 * OnPreUpdate - Called after FixedUpdate but before Update each frame.
-* OnManagedStart - Called before EarlyUpdate first time CLRManager picks up CLRScript.
 
 To configure which functions are called you don't need to do anything. Currently, system checks which Update functions you implement using Reflection. If you don't override Setup method, system caches results into scriptable object, which is then used to build runtime dictionaries for per-type lookup.
 
