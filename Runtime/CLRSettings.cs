@@ -4,22 +4,19 @@ using UnityEngine;
 
 namespace HostGame
 {
-    /// 
-    /// For start functions it goes like this:
-    /// Awake -> Start -> 1 frame skipped -> ManagedStart
-    /// 
     [System.Flags]
-    public enum CLRSetupFlags
+    public enum CLRSetupFlags : byte // trying to have least influence on size of a class, so make it byte
     {
-        PreUpdate = 2,
-        Update = 4,
-        LateUpdate = 8,
-        FixedUpdate = 16,
-        EarlyUpdate = 32,
+        PreUpdate   = 1 << 0,
+        Update      = 1 << 1,
+        LateUpdate  = 1 << 2,
+        FixedUpdate = 1 << 3,
+        EarlyUpdate = 1 << 4,
 
         // Inversion so SafetyChecks and CacheComponents are default values
-        NoSafetyChecks = 256,
-        DontCacheComponents = 512,
+        NoSafetyChecks                   = 1 << 5,
+        DontCacheComponents              = 1 << 6,
+        ManualUpdatesSubscriptionControl = 1 << 7,
 
         Updates = Update     | PreUpdate   |
                   LateUpdate | FixedUpdate |

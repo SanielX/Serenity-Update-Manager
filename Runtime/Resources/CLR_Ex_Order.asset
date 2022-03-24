@@ -9,21 +9,26 @@ MonoBehaviour:
   m_GameObject: {fileID: 0}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 3811eff67a53df94cb16fb9b471b4cce, type: 3}
+  m_Script: {fileID: 11500000, guid: 3558ca48c34b59849a78bb74ce4d679a, type: 3}
   m_Name: CLR_Ex_Order
   m_EditorClassIdentifier: 
-  data:
-  - typeName: HostGame.Core.PlayerObject
-    executionIndex: -1001
-  - typeName: HostGame.Core.MoveModifierReciever
-    executionIndex: -100
-  - typeName: HostGame.Core.PlayerController
+  m_ExecutionOrderData:
+  - typeName: HostGame.ClassC
+    executionIndex: -2
+  - typeName: HostGame.ClassB
     executionIndex: -1
-  - typeName: HostGame.Core.InteractableBase
+  - typeName: HostGame.ClassD
     executionIndex: 1
-  - typeName: HostGame.Core.MovableObject
-    executionIndex: 1
-  - typeName: HostGame.Core.PlayerCameraController
-    executionIndex: 1
-  - typeName: HostGame.ExperimentalAI.HumanoidAIController
-    executionIndex: 99
+  m_CLRSetupData:
+  - typeName: HostGame.ClassA
+    baseExecutionTypeName: 
+    flags: 0
+  - typeName: HostGame.ClassC
+    baseExecutionTypeName: 
+    flags: 0
+  - typeName: HostGame.ClassD
+    baseExecutionTypeName: 
+    flags: 0
+  - typeName: HostGame.ClassB
+    baseExecutionTypeName: 
+    flags: 0

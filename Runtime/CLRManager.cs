@@ -8,16 +8,18 @@ using UnityEngine.PlayerLoop;
 using UnityEngine.Profiling;
 
 using Debug = UnityEngine.Debug;
+using CLRScriptMap  = System.Collections.Generic.Dictionary<System.Type, 
+                                                            System.Collections.Generic.List<HostGame.CLRScript>>;
 
 namespace HostGame
 {
     internal class CLRManager : MonoBehaviour
     {
-        [Serializable]  // Just to be able to view it in editor
-        internal class Bucket  // All scripts within bucket have same type
+        [Serializable]          // Just to be able to view it in editor
+        internal struct Bucket  // All scripts within bucket should have same type
         {
-            public Type ScriptType;
-            public int ExecutionIndex;
+            public int             ExecutionIndex;
+            public Type            ScriptType;
             public List<CLRScript> ScriptList;
         }
 
@@ -34,24 +36,35 @@ namespace HostGame
             instance = null;
         }
 
+        // This is for when AppDomainReload on playmode is disabled, on playmode CLRManager is intended to 
+        // live through all of application lifetime so no sense in destroying it
+        private void OnApplicationQuit()
+        {
+            DestroyImmediate(gameObject);
+        }
+
 #endif
+        private enum InitCommandType : byte 
+        {
+            Add,
+            Remove
+        }
 
         private readonly struct InitCommand
         {
-            public InitCommand(CLRScript script, bool addOrRemove)
+            public InitCommand(CLRScript script, InitCommandType commandType)
             {
                 this.script = script;
-                this.addOrRemove = addOrRemove;
+                this.initCommand = commandType;
             }
 
             public readonly CLRScript script;
-            public readonly bool addOrRemove;  // true is add, false is remove
+            public readonly InitCommandType initCommand;
         }
 
         // This is huge hack imo, but otherwise we would get GC on every update
         private enum CallbackType
         {
-            ManagedStart = -1, 
             Update = 0,
             FixedUpdate, 
             LateUpdate,
@@ -68,13 +81,12 @@ namespace HostGame
 
         private void AddTypeToProfileStrings(Type t, out string[] result)
         {
-            string[] strings = new string[6];
-            strings[0] = $"{t.Name}.OnManagedStart()";
-            strings[1] = $"{t.Name}.OnUpdate()";
-            strings[2] = $"{t.Name}.OnFixedUpdate()";
-            strings[3] = $"{t.Name}.OnLateUpdate()";
-            strings[4] = $"{t.Name}.OnPreUpdate()";
-            strings[5] = $"{t.Name}.OnEarlyUpdate()";
+            string[] strings = new string[5];
+            strings[0] = $"{t.Name}.OnUpdate()";
+            strings[1] = $"{t.Name}.OnFixedUpdate()";
+            strings[2] = $"{t.Name}.OnLateUpdate()";
+            strings[3] = $"{t.Name}.OnPreUpdate()";
+            strings[4] = $"{t.Name}.OnEarlyUpdate()";
 
             profileStrings[t] = strings;
             result = strings;
@@ -88,16 +100,16 @@ namespace HostGame
             if (!profileStrings.TryGetValue(t, out var strings))
                 AddTypeToProfileStrings(t, out strings);
 
-            return strings[(int)callback + 1];
+            return strings[(int)callback];
 #else
             return null;
 #endif
         }
 
         [Conditional("ENABLE_PROFILER")]
-        private void BeginProfileSample(Type t, CallbackType type)
+        private void BeginProfileSample(CLRScript target, CallbackType type)
         {
-            Profiler.BeginSample(GetProfileString(t, type));
+            Profiler.BeginSample(GetProfileString(target.GetType(), type), target);
         }
 
         [Conditional("ENABLE_PROFILER")]
@@ -134,25 +146,27 @@ namespace HostGame
                                          // this allows to run deletion of buckets only when it may have sense, instead of just every N frame
         private Queue<InitCommand> initQueue = new Queue<InitCommand>(256);
 
+        // zero priority index is used as an "anchor" to start search when inserting bucket
+        // Also we keep Type->List<CLRScript> dictionary for each update type to add/remove scripts even faster
         private int zeroPriorityIndexUpd = 0;
-        private Dictionary<Type, Bucket> managedTypeToBucket = new Dictionary<Type, Bucket>(8);  // Having dictionary allows to add scripts as O(1) operation
-        private List<Bucket> managedScripts = new List<Bucket>(8);
+        private CLRScriptMap managedTypeToBucket = new CLRScriptMap(64);  
+        private List<Bucket> managedScripts      = new List<Bucket>(64);
 
         private int zeroPriorityIndexLt = 0;
-        private Dictionary<Type, Bucket> managedLateTypeToBucket = new Dictionary<Type, Bucket>(4);
-        private List<Bucket> managedLateScripts = new List<Bucket>(4);
+        private CLRScriptMap managedLateTypeToBucket = new CLRScriptMap(64);
+        private List<Bucket> managedLateScripts      = new List<Bucket>(64);
 
         private int zeroPriorityIndexFx = 0;
-        private Dictionary<Type, Bucket> managedFixedTypeToBucket = new Dictionary<Type, Bucket>(4);
-        private List<Bucket> managedFixedScripts = new List<Bucket>(4);
+        private CLRScriptMap managedFixedTypeToBucket = new CLRScriptMap(64);
+        private List<Bucket> managedFixedScripts      = new List<Bucket>(64);
 
         private int zeroPriorityIndexPr = 0;
-        private Dictionary<Type, Bucket> managedPreTypeToBucket = new Dictionary<Type, Bucket>(1);
-        private List<Bucket> managedPreScripts = new List<Bucket>(1);
+        private CLRScriptMap managedPreTypeToBucket = new CLRScriptMap(16);
+        private List<Bucket> managedPreScripts      = new List<Bucket>(16);
 
         private int zeroPriorityIndexEr = 0;
-        private Dictionary<Type, Bucket> managedEarlyTypeToBucket = new Dictionary<Type, Bucket>(1);
-        private List<Bucket> managedEarlyScripts = new List<Bucket>(1);
+        private CLRScriptMap managedEarlyTypeToBucket = new CLRScriptMap(16);
+        private List<Bucket> managedEarlyScripts      = new List<Bucket>(16);
 
         internal static void Add(CLRScript script)
         {
@@ -160,8 +174,17 @@ namespace HostGame
 #if UNITY_EDITOR
             if (!UnityEditor.EditorApplication.isPlaying)
                 return;
-#endif 
-            Instance.initQueue.Enqueue(new InitCommand(script, true));
+#endif
+
+#if UNITY_ASSERTIONS
+            if(!script)
+            {
+                Debug.LogError("CLRScript was destroyed but you are still trying to add to to update list", script);
+                return;
+            }
+#endif
+
+            Instance.initQueue.Enqueue(new InitCommand(script, InitCommandType.Add));
         }
 
         internal static void Remove(CLRScript script)
@@ -170,7 +193,7 @@ namespace HostGame
             if (!UnityEditor.EditorApplication.isPlaying)
                 return;
 #endif 
-            Instance.initQueue.Enqueue(new InitCommand(script, false));
+            Instance.initQueue.Enqueue(new InitCommand(script, InitCommandType.Remove));
         }
 
         private void EarlyUpdate()
@@ -184,26 +207,21 @@ namespace HostGame
                 if (clrScript is null) // Use real null check, not unity check
                     continue;
 
-                if (command.addOrRemove == false) // remove even if destroyed
-                {
+                if (command.initCommand == InitCommandType.Remove) // remove even if destroyed                
                     RemoveScript(clrScript, clrScript.__setupFlags);
-                    continue;
-                }
-
-                if(clrScript) // add if not destroyed
+                else if (clrScript) // add if not destroyed
                     AddScript(clrScript);
             }
 
-            // TODO: Make it work
             if (mayNeedGC &&
                (CLRManagerSettings.BucketGCFrequency != -1 &&
                 Time.frameCount % CLRManagerSettings.BucketGCFrequency == 0))
             {
                 RemoveEmptyBuckets(managedEarlyScripts, managedEarlyTypeToBucket);
-                RemoveEmptyBuckets(managedPreScripts, managedPreTypeToBucket);
+                RemoveEmptyBuckets(managedPreScripts,   managedPreTypeToBucket);
                 RemoveEmptyBuckets(managedFixedScripts, managedFixedTypeToBucket);
-                RemoveEmptyBuckets(managedScripts, managedTypeToBucket);
-                RemoveEmptyBuckets(managedLateScripts, managedLateTypeToBucket);
+                RemoveEmptyBuckets(managedScripts,      managedTypeToBucket);
+                RemoveEmptyBuckets(managedLateScripts,  managedLateTypeToBucket);
                 mayNeedGC = false;
             }
 
@@ -246,7 +264,7 @@ namespace HostGame
                         try
                         {
 #endif
-                            BeginProfileSample(clrScript.ScriptType, callback);
+                            BeginProfileSample(clrScript, callback);
 
                             switch (callback)
                             {
@@ -277,7 +295,7 @@ namespace HostGame
                         }
                         catch (System.Exception e)
                         {
-                            Debug.LogException(e);
+                            Debug.LogException(e, clrScript);
                         }
 #endif 
                         }
@@ -286,7 +304,7 @@ namespace HostGame
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private void RemoveEmptyBuckets(List<Bucket> buckets, Dictionary<Type, Bucket> bucketDict)
+        private void RemoveEmptyBuckets(List<Bucket> buckets, CLRScriptMap bucketDict)
         {
             for (int i = 0; i < buckets.Count; i++)
             {
@@ -295,30 +313,51 @@ namespace HostGame
                     bucketDict.Remove(buckets[i].ScriptType);
                     buckets.RemoveAt(i);
                     i--;
-                    continue;
                 }
             }
         }
 
-#if UNITY_EDITOR
-
-        // This is for AppDomain disabled
-        private void OnApplicationQuit()
-        {
-            DestroyImmediate(gameObject);
-        }
-
-#endif
-
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private bool IsScriptActive(CLRScript s)
+        private static bool IsScriptActive(CLRScript s)
         {
-            // Using real null check instead of what unity overrides
             // Do unity-null check if script doesn't mind it
-            return s is { /* not null */ } && ((s.__setupFlags & CLRSetupFlags.NoSafetyChecks) != 0 || (s && s.enabled && s.gameObject && s.gameObject.activeInHierarchy));
+            return (s.__setupFlags & CLRSetupFlags.NoSafetyChecks) != 0 || 
+                   (s && s.gameObject && s.enabled && s.gameObject.activeInHierarchy);
         }
 
-        #region Script List Handeling
+        internal static bool IsScriptSubscribed(CLRScript script)
+        {
+            bool result = true;
+            CLRSetupFlags usedCalls = script.__setupFlags;
+            if (usedCalls.HasFlag(CLRSetupFlags.Update))
+                result &= checkBuckets(script, Instance.managedTypeToBucket);
+
+            if (usedCalls.HasFlag(CLRSetupFlags.LateUpdate))
+                result &= checkBuckets(script, Instance.managedLateTypeToBucket);
+
+            if (usedCalls.HasFlag(CLRSetupFlags.FixedUpdate))
+                result &= checkBuckets(script, Instance.managedFixedTypeToBucket);
+
+            if (usedCalls.HasFlag(CLRSetupFlags.PreUpdate))
+                result &= checkBuckets(script, Instance.managedPreTypeToBucket);
+
+            if (usedCalls.HasFlag(CLRSetupFlags.EarlyUpdate))
+                result &= checkBuckets(script, Instance.managedEarlyTypeToBucket);
+
+            return result;
+
+            bool checkBuckets(CLRScript script, CLRScriptMap bucketDict)
+            {
+                if (bucketDict.TryGetValue(script.__executionOrderType, out var bucket))
+                {
+                    return bucket.Contains(script);
+                }
+
+                return false;
+            }
+        }
+
+        #region Script List Handling
 
         private void AddScript(CLRScript script)
         {
@@ -359,9 +398,9 @@ namespace HostGame
             mayNeedGC = true; 
         }
 
-        private void RemoveScriptFromList(CLRScript script, Dictionary<Type, Bucket> dict, ref int zeroPointIndex)
+        private void RemoveScriptFromList(CLRScript script, CLRScriptMap dict, ref int zeroPointIndex)
         {
-            if (!dict.TryGetValue(script.ScriptType, out var bucket))
+            if (!dict.TryGetValue(script.__executionOrderType, out var bucket))
             {
 #if UNITY_EDITOR
                 if(UnityEditor.EditorApplication.isPlaying) // It does spam about deleting destoyed stuff
@@ -370,33 +409,34 @@ namespace HostGame
                 return;
             }
 
-            int index = bucket.ScriptList.IndexOf(script);
-            if (index == -1)
+            int index = bucket.IndexOf(script);
+            if (index < 0)
                 return;
 
             if (zeroPointIndex > 0 && index <= zeroPointIndex)
                 zeroPointIndex--;
 
-            bucket.ScriptList.RemoveAt(index);
+            bucket.RemoveAt(index);
         }
 
-        private static void AddScriptToBucket(CLRScript script, Dictionary<Type, Bucket> dict, List<Bucket> bucketList, ref int index)
+        private static void AddScriptToBucket(CLRScript script, CLRScriptMap dict, 
+                                              List<Bucket> bucketList, ref int index)
         {
-            if (dict.TryGetValue(script.ScriptType, out var bucket))
+            if (dict.TryGetValue(script.__executionOrderType, out var scriptList))
             {
-                bucket.ScriptList.Add(script);
+                scriptList.Add(script);
                 return;
             }
 
-            bucket = new Bucket()
+            var bucket = new Bucket()
             {
-                ScriptType = script.ScriptType,
-                ExecutionIndex = script.ExecutionIndex,
+                ScriptType = script.__executionOrderType,
+                ExecutionIndex = CLRScriptDataContainer.GetExecutionOrder(script.__executionOrderType),
                 ScriptList = new List<CLRScript>(16)
             };
             bucket.ScriptList.Add(script);
 
-            dict[script.ScriptType] = bucket;
+            dict[script.__executionOrderType] = bucket.ScriptList;
             AddBucketToList(bucket, bucketList, ref index);
         }
 
@@ -430,9 +470,9 @@ namespace HostGame
 
                 if (seekIndex >= currentScript.ExecutionIndex)
                 {
-                    var nextScript = i + 1 < scriptsList.Count ? scriptsList[i + 1] : null;
+                    var nextScript = i + 1 < scriptsList.Count ? scriptsList[i + 1] : default;
 
-                    if (nextScript == null)
+                    if (nextScript.ScriptType is null)
                     {
                         scriptsList.Add(script);
                         ++i;
@@ -460,9 +500,9 @@ namespace HostGame
 
                 if (seekIndex < currentScript.ExecutionIndex)
                 {
-                    var prevScript = i > 0 ? scriptsList[i - 1] : null;
+                    var prevScript = i > 0 ? scriptsList[i - 1] : default;
 
-                    if (prevScript == null)
+                    if (prevScript.ScriptType is null)
                     {
                         scriptsList.Insert(0, script);
                         break;
@@ -513,7 +553,7 @@ namespace HostGame
                 {
                     ref var subSystems = ref loop.subSystemList[i].subSystemList;
 #if UNITY_EDITOR  // Protection against DomainReload off
-                    if (FindSubsystem(subSystems, typeof(CLREarlyUpdate)))
+                    if (findSubsystem(subSystems, typeof(CLREarlyUpdate)))
                         continue;
 #endif
 
@@ -532,7 +572,7 @@ namespace HostGame
                 {
                     ref var subSystems = ref loop.subSystemList[i].subSystemList;
 #if UNITY_EDITOR
-                    if (FindSubsystem(subSystems, typeof(CLRPreUpdate)))
+                    if (findSubsystem(subSystems, typeof(CLRPreUpdate)))
                         continue;
 #endif
                     Array.Resize(ref subSystems, rootSubsystems.subSystemList.Length + 1);
@@ -548,7 +588,7 @@ namespace HostGame
 
             PlayerLoop.SetPlayerLoop(loop);
 
-            static bool FindSubsystem(PlayerLoopSystem[] subSystems, Type systemType)
+            static bool findSubsystem(PlayerLoopSystem[] subSystems, Type systemType)
             {
                 foreach (var subs in subSystems)
                 {
