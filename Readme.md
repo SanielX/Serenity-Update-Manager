@@ -51,7 +51,7 @@ Next methods are just mimicing MonoBehaviour methods:
 * OnDisabled
 * OnDestroyed
 
-Now next 3 are new to the system:
+Now next 2 are new to the system:
 * OnEarlyUpdate - Called at the start of each frame even before FixedUpdate.
 * OnPreUpdate - Called after FixedUpdate but before Update each frame.
 
@@ -75,13 +75,13 @@ public override CLRSetupFlags Setup()
     switch (m_UpdateMode)
     {
         case UpdateMode.Update:
-            calls |= CLRSetupFlags.Update;
+            result |= CLRSetupFlags.Update;
             break;
         case UpdateMode.FixedUpdate:
-            calls |= CLRSetupFlags.FixedUpdate;
+            result |= CLRSetupFlags.FixedUpdate;
             break;
         case UpdateMode.LateUpdate:
-            calls |= CLRSetupFlags.LateUpdate;
+            result |= CLRSetupFlags.LateUpdate;
             break;
         case UpdateMode.Manual:
             break;
@@ -97,6 +97,8 @@ public override CLRSetupFlags Setup()
 }
 ```
 
+You may have a situation where your base class has sealed update function. So you may still want to group all child classess to be executed toghether. In this case you can add `ExecutionGroupBaseClass` attribute, so all children of this class will be boundled toghether if they have same execution order index.
+
 ## Execution Order
 You can control execution order in 3 ways:
 * `[DefaultExecutionOrder]` attribute, which will just set class order to some value
@@ -104,6 +106,7 @@ You can control execution order in 3 ways:
 * Execution Order window. System will take execution order from ProjectSettings as just number. So don't expect CLRScript to run between MonoBehaviours because all CLRScripts are executed in a single loop.
 
 All execution IDs are stored in `CLR_Ex_Order.asset` which stores every class that has non-zero execution order.
+Resolving execution order when using `Run.Before` and `Run.After` attributes may be undefined in cases when you have both Before and After attribute on your class or if you have created infinite loop by making cyclic dependency.
 
 ## Component Caching
 By default all GameObjects with at least one CLRScript cache their components into global dictionary. You can acess these components by using extension methods such as

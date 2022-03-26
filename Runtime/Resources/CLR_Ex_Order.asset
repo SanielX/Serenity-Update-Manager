@@ -14,21 +14,21 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   m_ExecutionOrderData:
   - typeName: HostGame.ClassC
-    executionIndex: -2
+    executionIndex: -3
   - typeName: HostGame.ClassB
+    executionIndex: -2
+  - typeName: HostGame.ClassA
     executionIndex: -1
-  - typeName: HostGame.ClassD
-    executionIndex: 1
   m_CLRSetupData:
   - typeName: HostGame.ClassA
     baseExecutionTypeName: 
     flags: 0
-  - typeName: HostGame.ClassC
+  - typeName: HostGame.ClassB
     baseExecutionTypeName: 
     flags: 0
   - typeName: HostGame.ClassD
     baseExecutionTypeName: 
     flags: 0
-  - typeName: HostGame.ClassB
+  - typeName: HostGame.ClassC
     baseExecutionTypeName: 
     flags: 0

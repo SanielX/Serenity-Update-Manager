@@ -5,9 +5,10 @@ using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using UnityEngine;
+using UnityEngine.Assertions;
 
 #if UNITY_EDITOR
-    using UnityEditor;
+using UnityEditor;
 #endif
 
 namespace HostGame
@@ -28,6 +29,16 @@ namespace HostGame
             public string baseExecutionTypeName;
 
             public CLRSetupFlags flags;
+        }
+
+        struct ScriptOrderData
+        {
+            public Type clrScriptType;
+            public int  orderIndex;
+            public Type[] runBefore;
+            public Type[] runAfter;
+
+            public override int GetHashCode() => clrScriptType.GetHashCode();
         }
 
         class CLROrderDataComparer : IComparer<CLROrderData>
@@ -64,6 +75,7 @@ namespace HostGame
         [SerializeField] CLRSetupData[] m_CLRSetupData;
 
 #if UNITY_EDITOR
+        static Type[] emptyTypeArray = new Type[0];
         // This should really be non blocking or something
         [ContextMenu("Get scripts order")]
         private void OnEnable()
@@ -82,7 +94,10 @@ namespace HostGame
             {
                 var monoScript = monoScripts[i];
                 Type type = monoScript.GetClass();
-                if (!monoScript || type is null || !ComponentHelpers.IsInherited(type, typeof(CLRScript)))
+                // Bother to check only non-abstract types, since we generate for every script anyway
+                // Also somehow monoscript and type may be null. Unity moment
+                if (!monoScript || type is null || type.IsAbstract ||
+                    !ComponentHelpers.IsInherited(type, typeof(CLRScript)))
                     continue;
 
                 int order = UnityEditor.MonoImporter.GetExecutionOrder(monoScript);
@@ -93,8 +108,8 @@ namespace HostGame
             }
 
             // ConcurrentBag has too much bloat for such simple task really
-            CLRSetupData[] setupDataBag = new CLRSetupData[monoScriptsCapacity];
-            CLROrderData[] orderDataBag = new CLROrderData[monoScriptsCapacity];
+            CLRSetupData[]    setupDataBag = new CLRSetupData[monoScriptsCapacity];
+            ScriptOrderData[] orderDataBag = new ScriptOrderData[monoScriptsCapacity];
             int setupDataCount = 0;
             int orderDataCount = 0;
 
@@ -115,15 +130,25 @@ namespace HostGame
 
                 var orderDataBagIndex = Interlocked.Increment(ref orderDataCount) - 1;
 
-                orderDataBag[orderDataBagIndex] = new CLROrderData()
+                var typesBefore = type.GetCustomAttributes<Run.BeforeAttribute>(inherit: true);
+                var typesAfter  = type.GetCustomAttributes<Run.AfterAttribute> (inherit: true);
+
+                orderDataBag[orderDataBagIndex] = new ScriptOrderData()
                 {
-                    typeName = type.FullName,
-                    executionIndex = order
+                    clrScriptType = type,
+                    orderIndex = order,
+
+                    runBefore = typesBefore.Count() > 0 ?
+                                typesBefore.Select((attr) => attr.targetType).ToArray() : emptyTypeArray,
+
+                    runAfter = typesAfter.Count() > 0 ?
+                               typesAfter.Select((attr) => attr.targetType).ToArray() : emptyTypeArray,
                 };
+
 
                 if (!ComponentHelpers.HasOverride(SetupMethodInfo, type))
                 {
-                    var settings = CLRScript.DefaultSetupFunction(type);
+                    var settings      = CLRScript.DefaultSetupFunction(type);
                     var executionType = CLRScript.GetExecutionOrderType(type);
 
                     var setupData = new CLRSetupData()
@@ -138,73 +163,76 @@ namespace HostGame
                 }
             });
 
-            m_CLRSetupData       = setupDataBag;
-            m_ExecutionOrderData = orderDataBag;
-
-            RebuildDictionaries();
-
-            Array.Sort(m_ExecutionOrderData, 0, orderDataCount,
-                       CLROrderDataComparer.instance);
-
-            bool rebuildNeeded = true;
-
-            //FIXME: This is probably stupid and needs to be redone
-            int sanityCheck = 0;
-            while (rebuildNeeded)
+            HashSet<Type> resolvedTypesSet = new HashSet<Type>(orderDataCount);
+            for (int i = 0; i < orderDataCount; i++)
             {
-                rebuildNeeded = false;
+                resolveTypeOrder(i);
+            }
 
-                sanityCheck++;
-                if (sanityCheck > 10_000)
+            int resolveTypeOrder(int index)
+            {
+                ref var data = ref orderDataBag[index];
+                if (resolvedTypesSet.Contains(data.clrScriptType))
+                    return data.orderIndex;
+
+                // Mark as resolved before hand to avoid stack overflow
+                resolvedTypesSet.Add(data.clrScriptType);
+                if (data.runBefore.Length == 0 && data.runAfter.Length == 0) 
+                    return data.orderIndex;
+
+                // TODO: Make proper resolve for when class has
+                // both Run.Before and Run.After attributes
+                int resolvedOrder = 0;
+
+                for (int i = 0; i < data.runBefore.Length; i++)
                 {
-                    throw new System.Exception("You have created infinite loop by using Run.After/Before attributes");
+                    int candidateIndex = indexOfOrder(data.runBefore[i]);
+                    int candidate = resolveTypeOrder(candidateIndex) - 1;
+                    if (resolvedOrder == 0 || candidate < resolvedOrder)
+                        resolvedOrder = candidate;
                 }
 
+                for (int i = 0; i < data.runAfter.Length; i++)
+                {
+                    int candidateIndex = indexOfOrder(data.runAfter[i]);
+                    int candidate = resolveTypeOrder(candidateIndex) + 1;
+                    if (resolvedOrder == 0 || candidate > resolvedOrder)
+                        resolvedOrder = candidate;
+                }
+
+                return (data.orderIndex = resolvedOrder);
+            }
+
+            int indexOfOrder(Type type)
+            {
                 for (int i = 0; i < orderDataCount; i++)
                 {
-                    ref CLROrderData data = ref m_ExecutionOrderData[i];
-                    Type type = GlobalTypeCache.FindType(data.typeName);
-                    var beforeAttr = type.GetCustomAttribute<Run.BeforeAttribute>(true);
-                    var afterAttr  = type.GetCustomAttribute<Run.AfterAttribute>(true);
-                    int myOrder    = ExecutionOrder[type];
-
-                    if (beforeAttr != null)
-                    {
-                        int targetOrder = ExecutionOrder[beforeAttr.targetType];
-
-                        if (targetOrder <= myOrder)
-                        {
-                            data.executionIndex = targetOrder - 1;
-                            rebuildNeeded = true;
-                        }
-                    }
-
-                    if (afterAttr != null)
-                    {
-                        int targetOrder = ExecutionOrder[afterAttr.targetType];
-
-                        if (myOrder <= targetOrder)
-                        {
-                            data.executionIndex = targetOrder + 1;
-                            rebuildNeeded = true;
-                        }
-                    }
+                    if (orderDataBag[i].clrScriptType == type)
+                        return i;
                 }
 
-                if (rebuildNeeded)
-                {
-                    Array.Sort(m_ExecutionOrderData, 0, orderDataCount, 
-                               CLROrderDataComparer.instance);
-                    RebuildDictionaries();
-                }
+                return -1;
             }
+
+            m_ExecutionOrderData = new CLROrderData[orderDataCount];
+            for (int i = 0; i < orderDataCount; i++)
+            {
+                ref var data = ref orderDataBag[i];
+                m_ExecutionOrderData[i] = new CLROrderData()
+                {
+                    typeName = data.clrScriptType.FullName,
+                    executionIndex = data.orderIndex
+                };
+            }
+            Array.Sort(m_ExecutionOrderData, 0, orderDataCount,
+                      CLROrderDataComparer.instance);
 
             // Don't waste space serializing scripts that do not have any interesting execution index to begin with
             ClearZeroOrderScripts(ref orderDataCount, ref m_ExecutionOrderData);
 
             // Resize in the very end to avoid GCAllocs
             Array.Resize(ref m_ExecutionOrderData, orderDataCount);
-            Array.Resize(ref m_CLRSetupData,       setupDataCount);
+            Array.Resize(ref m_CLRSetupData, setupDataCount);
         }
 
         private static void ClearZeroOrderScripts(ref int orderDataLength, ref CLROrderData[] executionOrderData)
@@ -234,9 +262,9 @@ namespace HostGame
                 return;
 
             int pastZeroIndex = (executionIndexZeroStart + executionIndexZeroCount);
-            
+
             int pastZeroLength = orderDataLength - pastZeroIndex;
-            if(pastZeroLength > 0)
+            if (pastZeroLength > 0)
                 Array.Copy(executionOrderData, pastZeroIndex,
                            executionOrderData, executionIndexZeroStart, pastZeroLength);
 
