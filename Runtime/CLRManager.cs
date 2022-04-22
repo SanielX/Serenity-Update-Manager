@@ -199,6 +199,7 @@ namespace HostGame
         private void EarlyUpdate()
         {
             // Replicating OnEnable/Disable calls in order they came
+            if(!CLRManagerSettings.BlockInitializationQueue)
             while (initQueue.Count > 0)
             {
                 var command = initQueue.Dequeue();
@@ -214,8 +215,8 @@ namespace HostGame
             }
 
             if (mayNeedGC &&
-               (CLRManagerSettings.BucketGCFrequency != -1 &&
-                Time.frameCount % CLRManagerSettings.BucketGCFrequency == 0))
+               (CLRManagerSettings.BucketGCFrequency >= 0 &&
+                (Time.frameCount & (CLRManagerSettings.BucketGCFrequency - 1)) == 0))
             {
                 RemoveEmptyBuckets(managedEarlyScripts, managedEarlyTypeToBucket);
                 RemoveEmptyBuckets(managedPreScripts,   managedPreTypeToBucket);
@@ -604,12 +605,14 @@ namespace HostGame
 
         private static void PreUpdateCallback()
         {
-            Instance.PreUpdate();
+            if(Instance.enabled)
+                Instance.PreUpdate();
         }
 
         private static void EarlyUpdateCallback()
         {
-            Instance.EarlyUpdate();
+            if(Instance.enabled)
+                Instance.EarlyUpdate();
         }
 
         #endregion Player Loop Modification
