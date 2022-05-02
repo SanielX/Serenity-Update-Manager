@@ -207,7 +207,7 @@ namespace HostGame
             {
                 for (int i = 0; i < orderDataCount; i++)
                 {
-                    if (orderDataBag[i].clrScriptType == type)
+                    if (type.IsAssignableFrom(orderDataBag[i].clrScriptType))
                         return i;
                 }
 

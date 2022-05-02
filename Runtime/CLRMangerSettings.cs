@@ -1,4 +1,6 @@
-﻿namespace HostGame
+﻿using UnityEngine;
+
+namespace HostGame
 {
     public static class CLRManagerSettings
     {
@@ -10,7 +12,7 @@
         public static int BucketGCFrequency
         {
             get => (1 << _bucketGCFrequency);
-            set => _bucketGCFrequency = value < 0? value : Mathf.Log(Mathf.NextPowerOf2(value), 2);
+            set => _bucketGCFrequency = value < 0? value : (int)Mathf.Log(Mathf.NextPowerOfTwo(value), 2);
         }
 
         public static bool BlockInitializationQueue { get; set; }
