@@ -5,7 +5,6 @@ using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using UnityEngine;
-using UnityEngine.Assertions;
 
 #if UNITY_EDITOR
 using UnityEditor;
@@ -75,16 +74,18 @@ namespace HostGame
         [SerializeField] CLRSetupData[] m_CLRSetupData;
 
 #if UNITY_EDITOR
+        private bool fresh; // This needs to run only once during livespan of an object
+
         static Type[] emptyTypeArray = new Type[0];
         // This should really be non blocking or something
         [ContextMenu("Get scripts order")]
         private void OnEnable()
         {
-            if (EditorApplication.isPlayingOrWillChangePlaymode)
+            if (fresh || EditorApplication.isPlayingOrWillChangePlaymode)
                 return;
 
             UnityEditor.EditorUtility.SetDirty(this);
-
+            
             MonoScript[] monoScripts        = MonoImporter.GetAllRuntimeMonoScripts();
             Type[] monoScriptTypes          = new Type[monoScripts.Length];
             int[] monoScriptExecutionOrders = new int[monoScripts.Length];
@@ -94,10 +95,10 @@ namespace HostGame
             {
                 var monoScript = monoScripts[i];
                 Type type = monoScript.GetClass();
-                // Bother to check only non-abstract types, since we generate for every script anyway
-                // Also somehow monoscript and type may be null. Unity moment
+
+                // Somehow monoscript and type may be null. Unity moment
                 if (!monoScript || type is null || type.IsAbstract ||
-                    !ComponentHelpers.IsInherited(type, typeof(CLRScript)))
+                    !type.IsSubclassOf(typeof(CLRScript)))
                     continue;
 
                 int order = UnityEditor.MonoImporter.GetExecutionOrder(monoScript);
@@ -233,6 +234,10 @@ namespace HostGame
             // Resize in the very end to avoid GCAllocs
             Array.Resize(ref m_ExecutionOrderData, orderDataCount);
             Array.Resize(ref m_CLRSetupData, setupDataCount);
+
+            Array.Copy(setupDataBag, m_CLRSetupData, setupDataCount); 
+            AssetDatabase.SaveAssetIfDirty(this);
+            fresh = true;
         }
 
         private static void ClearZeroOrderScripts(ref int orderDataLength, ref CLROrderData[] executionOrderData)
