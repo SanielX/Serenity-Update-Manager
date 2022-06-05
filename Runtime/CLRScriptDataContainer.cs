@@ -74,17 +74,20 @@ namespace HostGame
         [SerializeField] CLRSetupData[] m_CLRSetupData;
 
 #if UNITY_EDITOR
-        private bool fresh; // This needs to run only once during livespan of an object
+
+        [UnityEditor.InitializeOnLoadMethod]
+        static void InitCLRDataObject()
+        {
+            var container = Resources.Load<CLRScriptDataContainer>(MAIN_CONT_NAME);
+            container.CacheCLRData();
+        }
 
         static Type[] emptyTypeArray = new Type[0];
         // This should really be non blocking or something
         [ContextMenu("Get scripts order")]
-        private void OnEnable()
+        private void CacheCLRData()
         {
-            if (fresh || EditorApplication.isPlayingOrWillChangePlaymode)
-                return;
-
-            UnityEditor.EditorUtility.SetDirty(this);
+            EditorUtility.SetDirty(this);
             
             MonoScript[] monoScripts        = MonoImporter.GetAllRuntimeMonoScripts();
             Type[] monoScriptTypes          = new Type[monoScripts.Length];
@@ -236,8 +239,6 @@ namespace HostGame
             Array.Resize(ref m_CLRSetupData, setupDataCount);
 
             Array.Copy(setupDataBag, m_CLRSetupData, setupDataCount); 
-            AssetDatabase.SaveAssetIfDirty(this);
-            fresh = true;
         }
 
         private static void ClearZeroOrderScripts(ref int orderDataLength, ref CLROrderData[] executionOrderData)
