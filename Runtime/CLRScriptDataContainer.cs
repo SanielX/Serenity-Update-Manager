@@ -50,11 +50,7 @@ namespace HostGame
             Resources.UnloadAsset(container);
         }
 
-        public const string MAIN_CONT_NAME = "CLR_Ex_Order";
-
-        static MethodInfo SetupMethodInfo = typeof(CLRScript)
-            .GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
-            .First((info) => info.Name == "Setup" && info.IsVirtual && info.ReturnType == typeof(CLRSetupFlags));
+        public const string MAIN_CONT_NAME = "CLR_UpdateManager_Data";
 
         private static Dictionary<int, int>           ExecutionOrder = new(); // Stored as type hashcode to execution index
                                                                               // All CLRScript derived classess are forever cached, therefore their System.Object hashcode will never
@@ -66,6 +62,11 @@ namespace HostGame
         [SerializeField] CLRSetupData[] m_CLRSetupData;
 
 #if UNITY_EDITOR
+
+        private static readonly MethodInfo SetupMethodInfo_Editor = typeof(CLRScript)
+            .GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+            .First((info) => info.Name == "Setup" && info.IsVirtual && info.ReturnType == typeof(CLRSetupFlags));
+
         class CLROrderDataComparer : IComparer<CLROrderData>
         {
             public static CLROrderDataComparer instance = new CLROrderDataComparer();
@@ -80,6 +81,17 @@ namespace HostGame
         static void InitCLRDataObject()
         {
             var container = Resources.Load<CLRScriptDataContainer>(MAIN_CONT_NAME);
+            if(!container)
+            {
+                if (!AssetDatabase.IsValidFolder("Assets/Resources"))
+                    AssetDatabase.CreateFolder("Assets", "Resources");
+
+                container = ScriptableObject.CreateInstance<CLRScriptDataContainer>();
+                container.name = MAIN_CONT_NAME;
+
+                AssetDatabase.CreateAsset(container, "Assets/Resources/" + MAIN_CONT_NAME + ".asset");
+            }
+
             if(container)
                 container.CacheCLRData();
         }
@@ -89,8 +101,8 @@ namespace HostGame
         [ContextMenu("Get scripts order")]
         private void CacheCLRData()
         {
-            EditorUtility.SetDirty(this);
-            
+            SerializedObject selfSerialized = new(this);
+
             MonoScript[] monoScripts        = MonoImporter.GetAllRuntimeMonoScripts();
             Type[] monoScriptTypes          = new Type[monoScripts.Length];
             int[] monoScriptExecutionOrders = new int[monoScripts.Length];
@@ -152,7 +164,7 @@ namespace HostGame
                 };
 
 
-                if (!ComponentHelpers.HasOverride(SetupMethodInfo, type))
+                if (!ComponentHelpers.HasOverride(SetupMethodInfo_Editor, type))
                 {
                     var settings      = CLRScript.DefaultSetupFunction(type);
 
@@ -218,6 +230,9 @@ namespace HostGame
                 return -1;
             }
 
+            var oldOrderData = (CLROrderData[])m_ExecutionOrderData.Clone();
+            var oldSetupData = (CLRSetupData[])m_CLRSetupData.Clone();
+
             m_ExecutionOrderData = new CLROrderData[orderDataCount];
             for (int i = 0; i < orderDataCount; i++)
             {
@@ -229,20 +244,22 @@ namespace HostGame
                 };
             }
             Array.Sort(m_ExecutionOrderData, 0, orderDataCount,
-                      CLROrderDataComparer.instance);
+                       CLROrderDataComparer.instance);
 
             // Don't waste space serializing scripts that do not have any interesting execution index to begin with
             ClearZeroOrderScripts(ref orderDataCount, ref m_ExecutionOrderData);
 
             // Resize in the very end to avoid GCAllocs
             Array.Resize(ref m_ExecutionOrderData, orderDataCount);
-            Array.Resize(ref m_CLRSetupData, setupDataCount);
+            Array.Resize(ref m_CLRSetupData,       setupDataCount);
 
             Array.Copy(setupDataBag, m_CLRSetupData, setupDataCount);
 
-            AssetDatabase.SaveAssetIfDirty(this);
+            selfSerialized.Update();
+            selfSerialized.ApplyModifiedPropertiesWithoutUndo();
+            selfSerialized.Dispose();
         }
-
+         
         private static void ClearZeroOrderScripts(ref int orderDataLength, ref CLROrderData[] executionOrderData)
         {
             // Execution order data is expected to be sorted so in the middle you'll get pack

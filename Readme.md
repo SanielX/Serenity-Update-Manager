@@ -5,7 +5,7 @@ However, this implementation also offers additional features, such as:
 
     ![](./Git/SortExample.png)
 
-    Notice how objects of type `MovableObject` are coupled toghether.
+    Notice how objects of type `MovableObject` are coupled toghether. I also think this order is much more reliable and easy to work with than seemingly random default update callbacks.
 * Run.After and Run.Before attributes. Allows all instances of some class to be updated before instances of another class. Works only for between CLRScripts
 * Nice profiling. Not only it shows nice stats in Profiler windows, but string are preallocated and thus, don't cause GCAllocs every frame.
     ![](./Git/ProfilerExample.png)
@@ -13,14 +13,17 @@ However, this implementation also offers additional features, such as:
 
 __Cons__:
 * Update manager does not work with [ExecuteAlways]
+* Every CLRScript has Awake, Start, OnEnable, OnDisable and OnDestroyed callbacks regardless of you using them
+
+__Minor concerns__:
 * Since all update calls are now external, they can not be private. Currently are public but you can change all callbacks to be `internal protected`
 * Also it is possible that FixedUpdate may be called before Start if object was Instantiated. This happens for default MonoBehaviours too by the way
-* Every CLRScript has Awake, Start, OnEnable, OnDisable and OnDestroyed callbacks regardless of you using them
 * Currently, CLRManager adds and removes script from its list every time you enable/disable component. So if you switch it every frame it may become a problem (May not, I didn't measure)
+* When you create CLRScript mid-frame it will not recieve any update callbacks until next frame
 
 ## Install
 To install package just use PackageManager and download it through git url, or import package into your assets folder. 
-Minimum supported unity version is 2021.1. I didn't check if it will work on older versions.
+Minimum supported unity version is 2021.3. I didn't check if it will work on older versions.
 
 ## Quick Start
 To start using new manager you need to derive you script from `CLRScript` (in `HostGame` namespace). Now the only difference between this manager and MonoBehvaiour is that instead of typing `void Update` you need to use virtual methods so it'll look like `public override void OnUpdate()`. Just create the script and following example should work, no setup required:
@@ -35,9 +38,9 @@ class MyClass : CLRScript
     }
 }
 ```
-There is also a file in Resources folder called `CLR_Ex_Order.asset`. You should add this file to your `.gitignore`, since this file is generated automatically each recompile.
+A file in Resources folder called `CLR_UpdateManager_Data.asset` will be automatically created to store all metadata required by the update manager. You should add this file to your `.gitignore`, since this file is generated automatically each recompile.
 
-_Note: Exceptions are handled if UNITY_ASSERTIONS is enabled. Otherwise, if any of your scripts throws whole loop will be aborted_
+_Note: Exceptions are handled if UNITY_ASSERTIONS is defined. Otherwise, if any of your scripts throws whole update loop will be aborted_
 
 ## Available methods
 Next methods are just mimicing MonoBehaviour methods:
@@ -65,10 +68,6 @@ If you want to configure calls yourself, you may just override `Setup` function 
 public override CLRSetupFlags Setup()
 {
     CLRSetupFlags result = 0;
-
-    // Should components of this game object be cached into global dictionary?
-    // It does by default
-    result |= CLRSetupFlags.DontCacheComponents;
 
     // Construct enum with calls 
     switch (m_UpdateMode)
@@ -104,10 +103,14 @@ You can control execution order in 3 ways:
 * `[Run.After(Type)]` and `[Run.Before(Type)]` which will generate execution order automatically based on execution order of given class.
 * Execution Order window. System will take execution order from ProjectSettings as just number. So don't expect CLRScript to run between MonoBehaviours because all CLRScripts are executed in a single loop.
 
-All execution IDs are stored in `CLR_Ex_Order.asset` which stores every class that has non-zero execution order.
+All execution IDs are stored in `CLR_UpdateManager_Data.asset` which stores every class that has non-zero execution order.
 Resolving execution order when using `Run.Before` and `Run.After` attributes may be undefined in cases when you have both Before and After attribute on your class or if you have created infinite loop by making cyclic dependency.
 
-## UObject
+
+## Utility
+Package also provides some utility components.
+
+### UObject
 Package also uses opportunity to insert some code into initialization to add ability to identify UnityEngine.Object's by instanceID. This is done via `UObject<T>` struct. It contains only instance ID instead of managed reference, therefore can be used in NativeArrays or even passed into Jobs (If it is not Burst compiled)
 
 ```csharp
@@ -120,11 +123,10 @@ GameObject GetGameObject(UObject<GameObject> u) => u.Dereference(); // Gets refe
 UObject<GameObject> GetUObject() => gameObject;
 
 // Therefore if you want to be safe about whether or not your UObject will be valid use
+// All CLRScript types cache themselves and their game objects on awake
 UObject<GameObject> GetUObject() => UObject<GameObject>.NewSafe(gameObject);
 ```
 
-## Utility
-Package also provides some utility classses.
 ### GlobalTypeCache
 All CLRScripts execution order/used callbacks data is precached, therefore at runtime we need to assign it based on type. To do it package creates internal TypeCache which finds a type by name and caches result for further use. You can also use for your own needs
 
