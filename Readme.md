@@ -1,4 +1,4 @@
-# CLR Manager
+# CLR-Update-Manager
 Update manager replacement for MonoBehvaiour in Unity Engine inspired by famous [article](https://blog.unity.com/technology/1k-update-calls) about 10 000 update calls. 
 However, this implementation also offers additional features, such as:
 * Aggregation by type. As discussed [here](https://www.youtube.com/watch?v=CBP5bpwkO54), calling same virtual function is much better for cache coherency and thus provides better performance.
@@ -7,14 +7,13 @@ However, this implementation also offers additional features, such as:
 
     Notice how objects of type `MovableObject` are coupled toghether.
 * Run.After and Run.Before attributes. Allows all instances of some class to be updated before instances of another class. Works only for between CLRScripts
-* Component caching. By default, any CLRScript on awake tries to cache ALL components of its game object into global dictionary. This way you can later use `this.GetUnsafe<T>` to get any component. My test shows, that this is 5-10 times faster than using GetComponent. Though this behaviour can be disabled by using attribute `[DontCacheComponents]` on class or assembly.
 * Nice profiling. Not only it shows nice stats in Profiler windows, but string are preallocated and thus, don't cause GCAllocs every frame.
     ![](./Git/ProfilerExample.png)
 * New calls. Exposes PreUpdate and EarlyUpdate as virtual functions.
 
 __Cons__:
 * Update manager does not work with [ExecuteAlways]
-* Since all update calls are now external, they can not be private
+* Since all update calls are now external, they can not be private. Currently are public but you can change all callbacks to be `internal protected`
 * Also it is possible that FixedUpdate may be called before Start if object was Instantiated. This happens for default MonoBehaviours too by the way
 * Every CLRScript has Awake, Start, OnEnable, OnDisable and OnDestroyed callbacks regardless of you using them
 * Currently, CLRManager adds and removes script from its list every time you enable/disable component. So if you switch it every frame it may become a problem (May not, I didn't measure)
@@ -36,7 +35,7 @@ class MyClass : CLRScript
     }
 }
 ```
-There is also a file in Resources folder called `CLR_Ex_Order.asset`. You should add this to your gitignore, since this file is generated automatically each recompile.
+There is also a file in Resources folder called `CLR_Ex_Order.asset`. You should add this file to your `.gitignore`, since this file is generated automatically each recompile.
 
 _Note: Exceptions are handled if UNITY_ASSERTIONS is enabled. Otherwise, if any of your scripts throws whole loop will be aborted_
 
@@ -108,28 +107,29 @@ You can control execution order in 3 ways:
 All execution IDs are stored in `CLR_Ex_Order.asset` which stores every class that has non-zero execution order.
 Resolving execution order when using `Run.Before` and `Run.After` attributes may be undefined in cases when you have both Before and After attribute on your class or if you have created infinite loop by making cyclic dependency.
 
-## Component Caching
-By default all GameObjects with at least one CLRScript cache their components into global dictionary. You can acess these components by using extension methods such as
+## UObject
+Package also uses opportunity to insert some code into initialization to add ability to identify UnityEngine.Object's by instanceID. This is done via `UObject<T>` struct. It contains only instance ID instead of managed reference, therefore can be used in NativeArrays or even passed into Jobs (If it is not Burst compiled)
+
 ```csharp
- public static T GetUnsafe<T>(this Component cmp) where T : class {}
 
- public static bool TryGetUnsafe<T>(this Component cmp, out T result) where T : class {}
+GameObject GetGameObject(UObject<GameObject> u) => u;               // Has implicit operators
+GameObject GetGameObject(UObject<GameObject> u) => u.Dereference(); // Gets reference as well 
 
- // Returns new array each call
- public static T[] GetAllUnsafe<T>(this Component cmp) where T : class {}
- // Populates writeTo and returns count of components
- public static int GetAllNonAlloc<T>(this Component cmp, ref T[] writeTo) where T : class {}
-```
-Notice that method is called `GetUnsafe`. This is because component are cached during OnAwake call. You shouldn't use this on prefabs or objects that have no CLRScript attached. Interfaces and base classes are supported as `<T>` argument. This line will work:
-```csharp
-var component = this.GetUnsafe<Component>();
-```
-You can't go deeper than `Component` into hierarchy tho, so `this.GetUnsafe<object>` will return `null`.
+// In this case might actually not work because not all Unity Objects are cached at startup
+// Implicit operator only performs null check
+UObject<GameObject> GetUObject() => gameObject;
 
-You can also cache components for any GameObject you want by using 
-```csharp 
-public static Dictionary<Type, List<object>> TryRegisterComponents(GameObject go) {}
-public static void UnregisterComponents(GameObject go){}
+// Therefore if you want to be safe about whether or not your UObject will be valid use
+UObject<GameObject> GetUObject() => UObject<GameObject>.NewSafe(gameObject);
 ```
 
-If you have multiple of the same component on GameObject, GetUnsafe will return only the first one. 
+## Utility
+Package also provides some utility classses.
+### GlobalTypeCache
+All CLRScripts execution order/used callbacks data is precached, therefore at runtime we need to assign it based on type. To do it package creates internal TypeCache which finds a type by name and caches result for further use. You can also use for your own needs
+
+### OrderedScriptCollection<T>
+Provides a way to store data grouped by type and sorted (roughly) by execution index (only defined for CLRScript derived types). This can be used in case you want to create your own callbacks
+
+### UnityObjectHashMap
+Is a hash map implementation which stores specifically InstanceID->Object pairs.

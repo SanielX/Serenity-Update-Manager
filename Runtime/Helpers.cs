@@ -80,70 +80,20 @@ namespace HostGame
             }
             return false;
         }
-
-        public static bool IsInherited(Type type, Type from)
-        {
-            while (type != null)
-            {
-                if (type.BaseType == from)
-                    return true;
-
-                type = type.BaseType;
-            }
-
-            return false;
-        }
     }
 
     public static class ComponentExtensions
     {
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static T? GetUnsafe<T>(this GameObject go) where T : class
-        {
-            return ComponentManager.GetUnsafe<T>(go);
-        }
-
         /// <summary>
         /// This will get component from global cache which is not guaranteed to return actual value. 
         /// Much more performant than GetComponent
         /// If CLRScript has caching enabled components will be available after Awake call from Unity.
         /// </summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        [System.Obsolete("Use 'GetComponent' instead")]
         public static T? GetUnsafe<T>(this Component cmp) where T : class
         {
-            return ComponentManager.GetUnsafe<T>(cmp.gameObject);
+            return cmp.GetComponent<T>();
         }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static bool TryGetUnsafe<T>(this Component cmp, out T? result) where T : class
-        {
-            result = GetUnsafe<T>(cmp);
-            return result != null;
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static bool TryGetUnsafe<T>(this GameObject go, out T? result) where T : class
-        {
-            result = GetUnsafe<T>(go);
-            return result != null;
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static T[]? GetAllUnsafe<T>(this Component cmp) where T : class
-        {
-            return ComponentManager.GetAll<T>(cmp.gameObject);
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static int GetAllUnsafeNonAlloc<T>(this Component cmp, ref T[] writeTo) where T : class
-        {
-            return ComponentManager.GetAllNonAlloc<T>(ref writeTo, cmp.gameObject);
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static int GetAllUnsafeNonAlloc<T>(this GameObject go, ref T[] writeTo) where T : class
-        {
-            return ComponentManager.GetAllNonAlloc<T>(ref writeTo, go);
-        } 
     }
 }

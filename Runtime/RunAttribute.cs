@@ -12,9 +12,6 @@ namespace HostGame
         {
             public BeforeAttribute(Type type)
             {
-                if (!ComponentHelpers.IsInherited(type, typeof(CLRScript)))
-                    throw new System.Exception("Wrong type. Execute Before attribute works only for CLRScripts");
-
                 targetType = type;
             }
 
@@ -26,9 +23,6 @@ namespace HostGame
         {
             public AfterAttribute(Type type)
             {
-                if (!ComponentHelpers.IsInherited(type, typeof(CLRScript)))
-                    throw new System.Exception("Wrong type. Run.After attribute works only for CLRScripts");
-
                 targetType = type;
             }
 

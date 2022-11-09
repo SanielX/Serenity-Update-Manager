@@ -5,6 +5,7 @@ using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using UnityEngine;
+using System.Runtime.CompilerServices;
 
 #if UNITY_EDITOR
 using UnityEditor;
@@ -25,7 +26,6 @@ namespace HostGame
         struct CLRSetupData
         {
             public string typeName;
-            public string baseExecutionTypeName;
 
             public CLRSetupFlags flags;
         }
@@ -40,17 +40,7 @@ namespace HostGame
             public override int GetHashCode() => clrScriptType.GetHashCode();
         }
 
-        class CLROrderDataComparer : IComparer<CLROrderData>
-        {
-            public static CLROrderDataComparer instance = new CLROrderDataComparer();
-
-            public int Compare(CLROrderData x, CLROrderData y)
-            {
-                return x.executionIndex.CompareTo(y.executionIndex);
-            }
-        }
-
-        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
         static void InitCLRData()
         {
             var container = Resources.Load<CLRScriptDataContainer>(MAIN_CONT_NAME);
@@ -66,20 +56,32 @@ namespace HostGame
             .GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
             .First((info) => info.Name == "Setup" && info.IsVirtual && info.ReturnType == typeof(CLRSetupFlags));
 
-        private static Dictionary<Type, int>          ExecutionOrder = new Dictionary<Type, int>();
-        private static Dictionary<Type, CLRSetupData> SetupData = new Dictionary<Type, CLRSetupData>();
+        private static Dictionary<int, int>           ExecutionOrder = new(); // Stored as type hashcode to execution index
+                                                                              // All CLRScript derived classess are forever cached, therefore their System.Object hashcode will never
+                                                                              // be invalid (since it is based on instance creation order)
+        private static Dictionary<int, CLRSetupData>  SetupData      = new();
 
         // TODO: Make these disabled in inspector but still viewable
         [SerializeField] CLROrderData[] m_ExecutionOrderData;
         [SerializeField] CLRSetupData[] m_CLRSetupData;
 
 #if UNITY_EDITOR
+        class CLROrderDataComparer : IComparer<CLROrderData>
+        {
+            public static CLROrderDataComparer instance = new CLROrderDataComparer();
+
+            public int Compare(CLROrderData x, CLROrderData y)
+            {
+                return x.executionIndex.CompareTo(y.executionIndex);
+            }
+        }
 
         [UnityEditor.InitializeOnLoadMethod]
         static void InitCLRDataObject()
         {
             var container = Resources.Load<CLRScriptDataContainer>(MAIN_CONT_NAME);
-            container.CacheCLRData();
+            if(container)
+                container.CacheCLRData();
         }
 
         static Type[] emptyTypeArray = new Type[0];
@@ -153,13 +155,11 @@ namespace HostGame
                 if (!ComponentHelpers.HasOverride(SetupMethodInfo, type))
                 {
                     var settings      = CLRScript.DefaultSetupFunction(type);
-                    var executionType = CLRScript.GetExecutionOrderType(type);
 
                     var setupData = new CLRSetupData()
                     {
                         flags = settings,
                         typeName = type.FullName,
-                        baseExecutionTypeName = executionType == type ? string.Empty : executionType.FullName,
                     };
 
                     var setupDataBagIndex = Interlocked.Increment(ref setupDataCount) - 1;
@@ -238,7 +238,9 @@ namespace HostGame
             Array.Resize(ref m_ExecutionOrderData, orderDataCount);
             Array.Resize(ref m_CLRSetupData, setupDataCount);
 
-            Array.Copy(setupDataBag, m_CLRSetupData, setupDataCount); 
+            Array.Copy(setupDataBag, m_CLRSetupData, setupDataCount);
+
+            AssetDatabase.SaveAssetIfDirty(this);
         }
 
         private static void ClearZeroOrderScripts(ref int orderDataLength, ref CLROrderData[] executionOrderData)
@@ -282,7 +284,7 @@ namespace HostGame
         {
             ExecutionOrder.Clear();
             SetupData.Clear();
-
+             
             for (int i = 0; i < m_ExecutionOrderData.Length; i++)
             {
                 ref CLROrderData script = ref m_ExecutionOrderData[i];
@@ -292,25 +294,25 @@ namespace HostGame
                     continue;
                 }
 
-                ExecutionOrder[foundType] = script.executionIndex;
+                ExecutionOrder.Add(RuntimeHelpers.GetHashCode(foundType), script.executionIndex);
             }
 
             for (int i = 0; i < m_CLRSetupData.Length; i++)
             {
-                ref CLRSetupData scriptData = ref m_CLRSetupData[i];
+                CLRSetupData scriptData = m_CLRSetupData[i];
                 var foundType = GlobalTypeCache.FindType(scriptData.typeName);
                 if (foundType is null)
                 {
                     continue;
                 }
 
-                SetupData[foundType] = scriptData;
+                SetupData.Add(RuntimeHelpers.GetHashCode(foundType), scriptData);
             }
         }
 
         public static int GetExecutionOrder(Type type)
         {
-            if (ExecutionOrder.TryGetValue(type, out int val))
+            if (ExecutionOrder.TryGetValue(RuntimeHelpers.GetHashCode(type), out int val))
                 return val;
             else
                 return 0;
@@ -318,7 +320,7 @@ namespace HostGame
 
         public static bool TryGetDefaultSetup(Type type, out CLRSetupFlags settings)
         {
-            if (SetupData.TryGetValue(type, out var data))
+            if (SetupData.TryGetValue(RuntimeHelpers.GetHashCode(type), out var data))
             {
                 settings = data.flags;
                 return true;
@@ -326,21 +328,6 @@ namespace HostGame
 
             settings = CLRScript.DefaultSetupFunction(type);
             return false;
-        }
-
-        public static Type GetBaseExecutionType(Type clrScriptType)
-        {
-            if (SetupData.TryGetValue(clrScriptType, out var data))
-            {
-                if (string.IsNullOrEmpty(data.baseExecutionTypeName))
-                    return clrScriptType;
-
-                var baseType = GlobalTypeCache.FindType(data.baseExecutionTypeName);
-                if (baseType != null)
-                    return baseType;
-            }
-
-            return clrScriptType;
         }
     }
 }

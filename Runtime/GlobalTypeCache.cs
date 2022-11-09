@@ -14,7 +14,7 @@ namespace HostGame
     /// In case of additionally loaded assemblies (who does that?) just do default search
     public static class GlobalTypeCache
     {
-        private static Dictionary<string, Type> CachedTypes = new Dictionary<string, Type>();
+        private static Dictionary<string, Type> CachedTypes = new Dictionary<string, Type>(256);
         private static Assembly[] assemblies = AppDomain.CurrentDomain.GetAssemblies();
 
         public static void UpdateAssembliesList()
@@ -26,7 +26,7 @@ namespace HostGame
         /// </summary>
         public static Type FindType(string fullName)
         {
-            if (fullName is null)
+            if (string.IsNullOrEmpty(fullName))
                 return null;
 
             Type result;
@@ -77,7 +77,8 @@ namespace HostGame
         {
             foreach (var asm in assemblies)
             {
-                if (asm.FullName.StartsWith("Unity."))
+                string fullName = asm.FullName;
+                if (fullName.StartsWith("UnityEngine.") || fullName.StartsWith("UnityEditor.") || fullName.StartsWith("Unity."))
                     continue;
 
                 foreach (var type in asm.GetTypes())
@@ -85,7 +86,7 @@ namespace HostGame
                     if ((type.IsAbstract && type.IsSealed) || type.IsValueType || type.IsInterface)
                         continue;
 
-                    if (typeof(CLRScript).IsAssignableFrom(type))
+                    if (type.IsSubclassOf(typeof(CLRScript)))
                     {
                         CachedTypes[type.FullName] = type;
                     }

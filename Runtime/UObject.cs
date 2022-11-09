@@ -33,7 +33,7 @@ namespace HostGame
         /// </summary>
         public static UObject NewSafe(UnityEngine.Object obj)
         {
-            ComponentManager.AddObjectInstance(obj, throwIfExists: false);
+            ComponentManager.AddObjectInstance(obj);
             return (UObject)obj;
         }
 
@@ -83,10 +83,10 @@ namespace HostGame
             return ComponentManager.GetByInstanceID(instanceID) as T;
         }
 
-        public static UObject NewSafe(UnityEngine.Object obj)
+        public static UObject<T> NewSafe(T obj)
         {
-            ComponentManager.AddObjectInstance(obj, throwIfExists: false);
-            return (UObject)obj;
+            ComponentManager.AddObjectInstance(obj);
+            return (UObject<T>)obj;
         }
 
         public override bool Equals(object obj)
@@ -106,11 +106,10 @@ namespace HostGame
 
         public static implicit operator UObject<T>(T obj)
         {
-            Assert.IsNotNull(obj, "You're trying to create reference to destroyed object");
-            return new UObject<T>(obj.GetInstanceID());
+            return new UObject<T>(obj? obj.GetInstanceID() : 0);
         }
 
-        public static explicit operator UObject(UObject<T> obj)
+        public static implicit operator UObject(UObject<T> obj)
         {
             return new UObject(obj.instanceID);
         }

@@ -5,7 +5,7 @@ using UnityEngine;
 namespace HostGame
 {
     [System.Flags]
-    public enum CLRSetupFlags : byte // trying to have least influence on size of a class, so make it byte
+    public enum CLRSetupFlags
     {
         PreUpdate   = 1 << 0,
         Update      = 1 << 1,
@@ -15,11 +15,18 @@ namespace HostGame
 
         // Inversion so SafetyChecks and CacheComponents are default values
         NoSafetyChecks                   = 1 << 5,
-        DontCacheComponents              = 1 << 6,
-        ManualUpdatesSubscriptionControl = 1 << 7,
 
-        Updates = Update     | PreUpdate   |
-                  LateUpdate | FixedUpdate |
-                  EarlyUpdate
+
+        DIMGUIDraw = 1 << 14,
+
+        Updates = Update      | PreUpdate   |
+                  LateUpdate  | FixedUpdate |
+                  EarlyUpdate | DIMGUIDraw
+    }
+
+    internal static class CLRSetupFlagsExt
+    {
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+        public static bool Has(this CLRSetupFlags value, CLRSetupFlags flag) => (value & flag) != 0;
     }
 }
