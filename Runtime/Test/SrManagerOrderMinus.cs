@@ -3,25 +3,25 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Assertions;
 
-namespace HostGame
+namespace Serenity
 {
     [AddComponentMenu("")]
-    internal class CLRManagerOrderMinus : CLRScript
+    internal class SrManagerOrderMinus : SRScript
     {
         internal static int _sharedInt;
 
-        public override void OnAwake()
+        protected override void OnAwake()
         {
             _sharedInt = 0;
         }
 
-        public override void OnPreUpdate()
+        protected internal override void OnPreUpdate()
         {
             if (_sharedInt != 0)
                 Assert.IsTrue(_sharedInt == 1);
         }
 
-        public override void OnUpdate()
+        protected internal override void OnUpdate()
         {
             _sharedInt = -1;
         }

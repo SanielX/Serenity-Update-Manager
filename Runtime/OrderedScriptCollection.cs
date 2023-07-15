@@ -1,34 +1,41 @@
 ﻿using System;
 using System.Collections.Generic;
+using Unity.IL2CPP.CompilerServices;
 using UnityEngine;
 
-namespace HostGame
+namespace Serenity
 {
     /// <summary>
-    /// Stores object grouped by type and ordered by execution index (if object is a <see cref="CLRScript"/>)
+    /// Stores object grouped by type and ordered by execution index (if object is a <see cref="SRScript"/>)
     /// </summary>
-    public class OrderedScriptCollection<T> where T : class
+    [Il2CppSetOption(Option.ArrayBoundsChecks, false)]
+    [Il2CppSetOption(Option.NullChecks,        false)]
+    internal class OrderedScriptCollection<T> where T : class
     {
         public OrderedScriptCollection(int capacity = 32)
         {
             typeToBucketMap   = new(capacity);
-            executionIndicies = new int    [capacity];
-            scriptTypes       = new Type   [capacity];
-            scripts           = new List<T>[capacity];
+            buckets           = new BucketMetadata[capacity];
+            scripts           = new LightList<T>  [capacity];
         }
 
-        private Dictionary<Type, List<T>> typeToBucketMap;
+        private Dictionary<Type, LightList<T>> typeToBucketMap;
 
-        public int Capacity   => executionIndicies.Length;
+        public int Capacity   => buckets.Length;
         public int Count      => _count;
 
-        public List<T>[] Data => scripts;
+        internal LightList<T>[] Data => scripts;
 
         private int       _count;
+
+        struct BucketMetadata
+        {
+            public int  executionIndex;
+            public Type type;
+        }
         
-        private int[]     executionIndicies;
-        private Type[]    scriptTypes;
-        private List<T>[] scripts;
+        private BucketMetadata[] buckets;
+        private LightList<T>[]   scripts;
 
         void InsertBucket(int index)
         {
@@ -38,13 +45,11 @@ namespace HostGame
 #endif
             EnsureCapacityForNumberOfElements(1);
 
-            Array.Copy(executionIndicies, index, executionIndicies, index + 1, _count - index);
-            Array.Copy(scriptTypes,       index, scriptTypes,       index + 1, _count - index);
-            Array.Copy(scripts,           index, scripts,           index + 1, _count - index);
+            Array.Copy(buckets,           index, buckets, index + 1, _count - index);
+            Array.Copy(scripts,           index, scripts, index + 1, _count - index);
 
-            executionIndicies[index] = 0;
-            scriptTypes      [index] = null;
-            scripts          [index] = new(16);
+            buckets          [index] = default;
+            scripts          [index] = new(32);
             _count++;
         }
 
@@ -52,18 +57,17 @@ namespace HostGame
         {
             EnsureCapacityForNumberOfElements(1);
 
-            executionIndicies[_count] = 0;
-            scriptTypes      [_count] = null;
+            buckets          [_count] = default;
             scripts          [_count] = new(16);
             _count++;
         }
 
         void RemoveBucketAt(int index)
         {
-            Array.Copy(executionIndicies, index + 1, executionIndicies, index, _count - index - 1);
-            Array.Copy(scriptTypes,       index + 1, scriptTypes,       index, _count - index - 1);
-            Array.Copy(scripts,           index + 1, scripts,           index, _count - index - 1);
+            // Have to preserve ordering here
             _count--;
+            Array.Copy(buckets, index + 1, buckets, index, _count - index);
+            Array.Copy(scripts, index + 1, scripts, index, _count - index);
         }
 
         void EnsureCapacityForNumberOfElements(int num)
@@ -80,7 +84,7 @@ namespace HostGame
                 if(scripts[i].Count == 0)
                 {
                     RemoveBucketAt(i);
-                    typeToBucketMap.Remove(scriptTypes[i]);
+                    typeToBucketMap.Remove(buckets[i].type);
                 }
             }
 
@@ -96,17 +100,17 @@ namespace HostGame
                 return;
             }
 
-            var executionIndex = CLRScriptDataContainer.GetExecutionOrder(type);
+            var executionIndex = SerenityScriptDataContainer.GetExecutionOrder(type);
 
             for (int i = 0; i < _count; i++)
             {
-                if (scriptTypes[i] == type)
+                if (buckets[i].type == type)
                 {
                     scripts[i].Add(script);
                     return;
                 }
 
-                if (executionIndicies[i] > executionIndex)
+                if (buckets[i].executionIndex > executionIndex)
                 {
                     InsertBucket(i);
                     AddScriptAtIndex(script, type, executionIndex, i);
@@ -123,9 +127,9 @@ namespace HostGame
             {
                 typeToBucketMap[type] = scripts[insertionIndex];
 
-                scripts          [insertionIndex].Add(script);
-                scriptTypes      [insertionIndex] = type;
-                executionIndicies[insertionIndex] = executionIndex;
+                scripts[insertionIndex].Add(script);
+                buckets[insertionIndex].type = type;
+                buckets[insertionIndex].executionIndex = executionIndex;
             }
         }
 
@@ -135,24 +139,21 @@ namespace HostGame
 
             for (int i = 0; i < _count; i++)
             {
-                if (scriptTypes[i] == type)
-                    scripts[i].Remove(script);
+                if (buckets[i].type == type)
+                    scripts[i].RemoveBySwapping(script);
             }
         }
 
         public void Resize(int newSize)
         {
-            var newIndicies = new int    [newSize];
-            var newTypes    = new Type   [newSize];
-            var newBuckets  = new List<T>[newSize];
+            var newBuckets = new BucketMetadata[newSize];
+            var newData    = new LightList<T>[newSize];
 
-            Array.Copy(executionIndicies, newIndicies, executionIndicies.Length);
-            Array.Copy(scriptTypes,       newTypes,    scriptTypes.Length);
-            Array.Copy(scripts,           newBuckets,  scripts.Length);
+            Array.Copy(buckets, newBuckets,   buckets.Length);
+            Array.Copy(scripts, newData, scripts.Length);
 
-            executionIndicies = newIndicies;
-            scriptTypes       = newTypes;
-            scripts           = newBuckets;
+            buckets = newBuckets;
+            scripts = newData;
         }
     }
 }

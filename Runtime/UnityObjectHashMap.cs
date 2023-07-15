@@ -3,7 +3,7 @@ using UnityEngine;
 
 using Object = UnityEngine.Object;
 
-namespace HostGame
+namespace Serenity
 {
     /// <summary>
     /// Stores unity object as key:InstanceID -> value:Object pairs.

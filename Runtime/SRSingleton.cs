@@ -2,9 +2,9 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
-namespace HostGame
+namespace Serenity
 {
-	public class CLRSingleton<T> : CLRScript where T : CLRScript
+	public class SRSingleton<T> : SRScript where T : SRScript
 	{
 		/// <summary>
 		/// The instance.
@@ -39,7 +39,7 @@ namespace HostGame
         /// <summary>
         /// Use this for initialization.
         /// </summary>
-        public override void OnAwake()
+        protected override void OnAwake()
         {
 			if (instance == null)
 			{

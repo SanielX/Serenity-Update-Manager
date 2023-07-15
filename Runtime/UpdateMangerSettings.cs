@@ -1,8 +1,8 @@
 ﻿using UnityEngine;
 
-namespace HostGame
+namespace Serenity
 {
-    public static class CLRManagerSettings
+    public static class UpdateManagerSettings
     {
         private static int _bucketGCFrequency = 10;
 
@@ -19,8 +19,8 @@ namespace HostGame
 
         public static bool Enabled
         {
-            get => CLRManager.Instance.enabled;
-            set => CLRManager.Instance.enabled = value;
+            get => UpdateManager.Instance.enabled;
+            set => UpdateManager.Instance.enabled = value;
         }
     }
 }

@@ -2,10 +2,10 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
-namespace HostGame
+namespace Serenity
 {
     [System.Flags]
-    public enum CLRSetupFlags
+    public enum UpdateSetupFlags
     {
         PreUpdate   = 1 << 0,
         Update      = 1 << 1,
@@ -24,9 +24,9 @@ namespace HostGame
                   EarlyUpdate | DIMGUIDraw
     }
 
-    internal static class CLRSetupFlagsExt
+    internal static class UpdateSetupFlagsExt
     {
         [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
-        public static bool Has(this CLRSetupFlags value, CLRSetupFlags flag) => (value & flag) != 0;
+        public static bool Has(this UpdateSetupFlags value, UpdateSetupFlags flag) => (value & flag) != 0;
     }
 }

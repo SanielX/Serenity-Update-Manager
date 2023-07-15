@@ -3,12 +3,11 @@ using System.Collections.Generic;
 using UnityEngine;
 using IDObjectDictionary = System.Collections.Generic.Dictionary<int, UnityEngine.Object>;
 
-#nullable enable
-namespace HostGame
+namespace Serenity
 {
-    public static class ComponentManager
+    public static class ComponentLookup
     {
-        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
         private static void Init()
         {
             intanceIDStorage = new(2048);
@@ -29,7 +28,7 @@ namespace HostGame
         /// <summary>
         /// Will return null if object was destroyed or never added
         /// </summary>
-        public static UnityEngine.Object? GetByInstanceID(int id)
+        public static UnityEngine.Object GetByInstanceID(int id)
         {
             var obj = intanceIDStorage.GetValue(id);
             return obj;

@@ -11,9 +11,9 @@ using System.Runtime.CompilerServices;
 using UnityEditor;
 #endif
 
-namespace HostGame
+namespace Serenity
 {
-    internal class CLRScriptDataContainer : ScriptableObject
+    internal class SerenityScriptDataContainer : ScriptableObject
     {
         [System.Serializable]
         struct CLROrderData
@@ -27,7 +27,7 @@ namespace HostGame
         {
             public string typeName;
 
-            public CLRSetupFlags flags;
+            public UpdateSetupFlags flags;
         }
 
         struct ScriptOrderData
@@ -40,17 +40,17 @@ namespace HostGame
             public override int GetHashCode() => clrScriptType.GetHashCode();
         }
 
-        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
         static void InitCLRData()
         {
-            var container = Resources.Load<CLRScriptDataContainer>(MAIN_CONT_NAME);
+            var container = Resources.Load<SerenityScriptDataContainer>("_Local/" + MAIN_CONT_NAME);
             GlobalTypeCache.CacheCLRScripts();
             container.RebuildDictionaries();
 
             Resources.UnloadAsset(container);
         }
 
-        public const string MAIN_CONT_NAME = "CLR_UpdateManager_Data";
+        public const string MAIN_CONT_NAME = "Serenity_UpdateManager_Data";
 
         private static Dictionary<int, int>           ExecutionOrder = new(); // Stored as type hashcode to execution index
                                                                               // All CLRScript derived classess are forever cached, therefore their System.Object hashcode will never
@@ -58,14 +58,14 @@ namespace HostGame
         private static Dictionary<int, CLRSetupData>  SetupData      = new();
 
         // TODO: Make these disabled in inspector but still viewable
-        [SerializeField] CLROrderData[] m_ExecutionOrderData;
-        [SerializeField] CLRSetupData[] m_CLRSetupData;
+        [SerializeField] CLROrderData[] m_ExecutionOrderData = System.Array.Empty<CLROrderData>();
+        [SerializeField] CLRSetupData[] m_CLRSetupData       = System.Array.Empty<CLRSetupData>();
 
 #if UNITY_EDITOR
-
-        private static readonly MethodInfo SetupMethodInfo_Editor = typeof(CLRScript)
+        private static bool initializedCache;
+        private static readonly MethodInfo SetupMethodInfo_Editor = typeof(SRScript)
             .GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
-            .First((info) => info.Name == "Setup" && info.IsVirtual && info.ReturnType == typeof(CLRSetupFlags));
+            .First((info) => info.Name == "Setup" && info.IsVirtual && info.ReturnType == typeof(UpdateSetupFlags));
 
         class CLROrderDataComparer : IComparer<CLROrderData>
         {
@@ -76,20 +76,23 @@ namespace HostGame
                 return x.executionIndex.CompareTo(y.executionIndex);
             }
         }
-
+         
         [UnityEditor.InitializeOnLoadMethod]
         static void InitCLRDataObject()
         {
-            var container = Resources.Load<CLRScriptDataContainer>(MAIN_CONT_NAME);
+            var container = Resources.Load<SerenityScriptDataContainer>("_Local/" + MAIN_CONT_NAME);
             if(!container)
             {
                 if (!AssetDatabase.IsValidFolder("Assets/Resources"))
                     AssetDatabase.CreateFolder("Assets", "Resources");
+                
+                if (!AssetDatabase.IsValidFolder("Assets/Resources/_Local"))
+                    AssetDatabase.CreateFolder("Assets/Resources", "_Local");
 
-                container = ScriptableObject.CreateInstance<CLRScriptDataContainer>();
+                container = ScriptableObject.CreateInstance<SerenityScriptDataContainer>();
                 container.name = MAIN_CONT_NAME;
 
-                AssetDatabase.CreateAsset(container, "Assets/Resources/" + MAIN_CONT_NAME + ".asset");
+                AssetDatabase.CreateAsset(container, "Assets/Resources/_Local/" + MAIN_CONT_NAME + ".asset");
             }
 
             if(container)
@@ -101,7 +104,7 @@ namespace HostGame
         [ContextMenu("Get scripts order")]
         private void CacheCLRData()
         {
-            SerializedObject selfSerialized = new(this);
+            if (initializedCache) return;
 
             MonoScript[] monoScripts        = MonoImporter.GetAllRuntimeMonoScripts();
             Type[] monoScriptTypes          = new Type[monoScripts.Length];
@@ -115,7 +118,7 @@ namespace HostGame
 
                 // Somehow monoscript and type may be null. Unity moment
                 if (!monoScript || type is null || type.IsAbstract ||
-                    !type.IsSubclassOf(typeof(CLRScript)))
+                    !type.IsSubclassOf(typeof(SRScript)))
                     continue;
 
                 int order = UnityEditor.MonoImporter.GetExecutionOrder(monoScript);
@@ -166,7 +169,7 @@ namespace HostGame
 
                 if (!ComponentHelpers.HasOverride(SetupMethodInfo_Editor, type))
                 {
-                    var settings      = CLRScript.DefaultSetupFunction(type);
+                    var settings      = SRScript.DefaultSetupFunction(type);
 
                     var setupData = new CLRSetupData()
                     {
@@ -255,9 +258,9 @@ namespace HostGame
 
             Array.Copy(setupDataBag, m_CLRSetupData, setupDataCount);
 
-            selfSerialized.Update();
-            selfSerialized.ApplyModifiedPropertiesWithoutUndo();
-            selfSerialized.Dispose();
+            EditorUtility.SetDirty(this);
+            AssetDatabase.SaveAssetIfDirty(this); 
+            initializedCache = true;
         }
          
         private static void ClearZeroOrderScripts(ref int orderDataLength, ref CLROrderData[] executionOrderData)
@@ -335,7 +338,7 @@ namespace HostGame
                 return 0;
         }
 
-        public static bool TryGetDefaultSetup(Type type, out CLRSetupFlags settings)
+        public static bool TryGetDefaultSetup(Type type, out UpdateSetupFlags settings)
         {
             if (SetupData.TryGetValue(RuntimeHelpers.GetHashCode(type), out var data))
             {
@@ -343,7 +346,7 @@ namespace HostGame
                 return true;
             }
 
-            settings = CLRScript.DefaultSetupFunction(type);
+            settings = default;
             return false;
         }
     }

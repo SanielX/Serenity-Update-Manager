@@ -1,13 +1,8 @@
 {
-  "name": "hg-studio.clr-manager",
-  "version": "1.1.0",
-  "displayName": "CLR Manager",
-  "description": "Replacement for MonoBehvaiour with additional features and better performance",
+  "name": "sereinity-clr-manager",
+  "version": "1.10.0",
+  "displayName": "Serenity Update Manager",
+  "description": "Replacement for MonoBehaviour with additional features and better performance",
   "unity": "2021.1",
-  "unityRelease": "0b5",
-  "author": {
-    "name": "Alex Hayden",
-    "email": "one.main.two@gmail.com"
-  },
   "hideInEditor": false
 }

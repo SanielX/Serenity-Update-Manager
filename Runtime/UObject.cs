@@ -1,11 +1,7 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 using UnityEngine.Assertions;
 
-namespace HostGame
+namespace Serenity
 {
     /// <summary>
     /// Contains a reference to object of type UnityEngine.Object in form of integer,
@@ -25,7 +21,7 @@ namespace HostGame
             if (instanceID == 0)
                 return null;
 
-            return ComponentManager.GetByInstanceID(instanceID) as T;
+            return ComponentLookup.GetByInstanceID(instanceID) as T;
         }
 
         /// <summary>
@@ -33,7 +29,7 @@ namespace HostGame
         /// </summary>
         public static UObject NewSafe(UnityEngine.Object obj)
         {
-            ComponentManager.AddObjectInstance(obj);
+            ComponentLookup.AddObjectInstance(obj);
             return (UObject)obj;
         }
 
@@ -80,12 +76,15 @@ namespace HostGame
             if (instanceID == 0)
                 return null;
 
-            return ComponentManager.GetByInstanceID(instanceID) as T;
+            return ComponentLookup.GetByInstanceID(instanceID) as T;
         }
 
+        /// <summary>
+        /// Ensures that object was cached before returning a reference
+        /// </summary>
         public static UObject<T> NewSafe(T obj)
         {
-            ComponentManager.AddObjectInstance(obj);
+            ComponentLookup.AddObjectInstance(obj);
             return (UObject<T>)obj;
         }
 

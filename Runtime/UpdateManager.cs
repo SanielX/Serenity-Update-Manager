@@ -9,9 +9,9 @@ using UnityEngine.Profiling;
 
 using Debug = UnityEngine.Debug;
 
-namespace HostGame
+namespace Serenity
 {
-    internal class CLRManager : MonoBehaviour
+    internal class UpdateManager : MonoBehaviour
     {
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
         private static void Init()
@@ -19,7 +19,7 @@ namespace HostGame
             var go = new GameObject();
             go.hideFlags = HideFlags.DontSave;
             go.name  = "CLR Manager";
-            instance = go.AddComponent<CLRManager>();
+            instance = go.AddComponent<UpdateManager>();
 
             DontDestroyOnLoad(go);
         }
@@ -50,13 +50,13 @@ namespace HostGame
 
         private readonly struct InitCommand
         {
-            public InitCommand(CLRScript script, InitCommandType commandType)
+            public InitCommand(SRScript script, InitCommandType commandType)
             {
                 this.script = script;
                 this.initCommand = commandType;
             }
 
-            public readonly CLRScript script;
+            public readonly SRScript script;
             public readonly InitCommandType initCommand;
         }
 
@@ -105,7 +105,7 @@ namespace HostGame
         }
 
         [Conditional("ENABLE_PROFILER")]
-        private void BeginProfileSample(CLRScript target, CallbackType type)
+        private void BeginProfileSample(SRScript target, CallbackType type)
         {
             Profiler.BeginSample(GetProfileString(target.GetType(), type), target);
         }
@@ -118,9 +118,9 @@ namespace HostGame
 
         #endregion
 
-        private static CLRManager instance;
+        private static UpdateManager instance;
 
-        public static CLRManager Instance
+        public static UpdateManager Instance
         {
             get
             {
@@ -133,15 +133,15 @@ namespace HostGame
         private Queue<InitCommand> initQueue = new Queue<InitCommand>(256);
 
 
-        private OrderedScriptCollection<CLRScript> managedScriptsCollection = new(256);
-        private OrderedScriptCollection<CLRScript> fixedScriptsCollection   = new(256);
-        private OrderedScriptCollection<CLRScript> lateScriptsCollection    = new();
-        private OrderedScriptCollection<CLRScript> preScriptsCollection     = new();
-        private OrderedScriptCollection<CLRScript> earlyScriptsCollection   = new();
+        private OrderedScriptCollection<SRScript> managedScriptsCollection = new(256);
+        private OrderedScriptCollection<SRScript> fixedScriptsCollection   = new(256);
+        private OrderedScriptCollection<SRScript> lateScriptsCollection    = new();
+        private OrderedScriptCollection<SRScript> preScriptsCollection     = new();
+        private OrderedScriptCollection<SRScript> earlyScriptsCollection   = new();
 
-        private List<CLRScript> guiScripts = new(16);
+        private List<SRScript> guiScripts = new(16);
 
-        internal static void Add(CLRScript script)
+        internal static void Add(SRScript script)
         {
             // TODO: Support for ExecuteAlways code?
 #if UNITY_EDITOR
@@ -160,7 +160,7 @@ namespace HostGame
             Instance.initQueue.Enqueue(new InitCommand(script, InitCommandType.Add));
         }
 
-        internal static void Remove(CLRScript script)
+        internal static void Remove(SRScript script)
         {
 #if UNITY_EDITOR
             if (!UnityEditor.EditorApplication.isPlaying)
@@ -172,24 +172,24 @@ namespace HostGame
         private void EarlyUpdate()
         {
             // Replicating OnEnable/Disable calls in order they came
-            if(!CLRManagerSettings.BlockInitializationQueue)
+            if(!UpdateManagerSettings.BlockInitializationQueue)
             while (initQueue.Count > 0)
             {
                 var command = initQueue.Dequeue();
-                CLRScript clrScript = command.script;
+                SRScript srScript = command.script;
 
-                if (clrScript is null) // Use real null check, not unity check
+                if (srScript is null) // Use real null check, not unity check
                     continue;
 
                 if (command.initCommand == InitCommandType.Remove) // remove even if destroyed                
-                    RemoveScript(clrScript, clrScript.__setupFlags);
-                else if (clrScript) // add if not destroyed
-                    AddScript(clrScript);
+                    RemoveScript(srScript, srScript.__setupFlags);
+                else if (srScript) // add if not destroyed
+                    AddScript(srScript);
             }
 
             if (mayNeedGC &&
-               (CLRManagerSettings.BucketGCFrequency >= 0 &&
-                (Time.frameCount & (CLRManagerSettings.BucketGCFrequency - 1)) == 0))
+               (UpdateManagerSettings.BucketGCFrequency >= 0 &&
+                (Time.frameCount & (UpdateManagerSettings.BucketGCFrequency - 1)) == 0))
             {
                 managedScriptsCollection.ClearUnusedSlots();
                 fixedScriptsCollection  .ClearUnusedSlots();
@@ -224,43 +224,51 @@ namespace HostGame
 
         // Funny enough, compiler should inline this method and remove switch!
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private void UpdateList(OrderedScriptCollection<CLRScript> collection, CallbackType callback)
+        private void UpdateList(OrderedScriptCollection<SRScript> collection, CallbackType callback)
         {
             var buckets = collection.Data;
-            for (int i = 0; i < collection.Count; i++)
+            for (int iType = 0; iType < collection.Count; iType++)
             {
-                for (int j = 0; j < buckets[i].Count; j++)
-                {
-                    CLRScript clrScript = buckets[i][j];  // I'd still like to make Span out of list and avoid bound check tho
+#if !ENABLE_IL2CPP && UNSAFE_DLL
+                ref CLRScript iterator = ref buckets[iType].GetArrayRef();
+#endif 
 
-                    if (IsScriptActive(clrScript))
+                for (int iScript = 0; iScript < buckets[iType].Count; iScript++)
+                {
+#if !ENABLE_IL2CPP && UNSAFE_DLL // This doesn't work if user didn't import unsafe as precompiled library :P
+                    CLRScript clrScript = Unsafe.Add(ref iterator, iScript);
+#else
+                    SRScript srScript = buckets[iType].GetItemWithoutChecks(iScript);
+#endif 
+
+                    if (IsScriptActive(srScript))
                     {
 #if UNITY_ASSERTIONS
                         try
                         {
 #endif
-                            BeginProfileSample(clrScript, callback);
+                            BeginProfileSample(srScript, callback);
 
                             switch (callback)
                             {
                             case CallbackType.Update:
-                                clrScript.OnUpdate();
+                                srScript.OnUpdate();
                                 break;
 
                             case CallbackType.FixedUpdate:
-                                clrScript.OnFixedUpdate();
+                                srScript.OnFixedUpdate();
                                 break;
 
                             case CallbackType.LateUpdate:
-                                clrScript.OnLateUpdate();
+                                srScript.OnLateUpdate();
                                 break;
 
                             case CallbackType.PreUpdate:
-                                clrScript.OnPreUpdate();
+                                srScript.OnPreUpdate();
                                 break;
 
                             case CallbackType.EarlyUpdate:
-                                clrScript.OnEarlyUpdate();
+                                srScript.OnEarlyUpdate();
                                 break;
                             }
 
@@ -270,71 +278,71 @@ namespace HostGame
                         }
                         catch (System.Exception e)
                         {
-                            Debug.LogException(e, clrScript);
+                            Debug.LogException(e, srScript);
                         }
-#endif 
+#endif
                         }
                 }
             }
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static bool IsScriptActive(CLRScript s)
+        private static bool IsScriptActive(SRScript s)
         {
-            return (s.__setupFlags & CLRSetupFlags.NoSafetyChecks) != 0 || 
-                   (s.isActiveAndEnabled); // This thing will check everything about whether object is destroyed and other properties!
+            return (s.__setupFlags & UpdateSetupFlags.NoSafetyChecks) != 0 || 
+                   (s.isActiveAndEnabled); // This thing will check everything about whether object is destroyed and other properties
         }
 
-        #region Script List Handling
+#region Script List Handling
 
-        private void AddScript(CLRScript script)
+        private void AddScript(SRScript script)
         {
-            CLRSetupFlags usedFlags = script.__setupFlags;
-            if (usedFlags.Has(CLRSetupFlags.Update))
+            UpdateSetupFlags usedFlags = script.__setupFlags;
+            if (usedFlags.Has(UpdateSetupFlags.Update))
                 managedScriptsCollection.Add(script);
 
-            if (usedFlags.Has(CLRSetupFlags.LateUpdate))
+            if (usedFlags.Has(UpdateSetupFlags.LateUpdate))
                 lateScriptsCollection.Add(script);
 
-            if (usedFlags.Has(CLRSetupFlags.FixedUpdate))
+            if (usedFlags.Has(UpdateSetupFlags.FixedUpdate))
                 fixedScriptsCollection.Add(script);
 
-            if (usedFlags.Has(CLRSetupFlags.PreUpdate))
+            if (usedFlags.Has(UpdateSetupFlags.PreUpdate))
                 preScriptsCollection.Add(script);
 
-            if (usedFlags.Has(CLRSetupFlags.EarlyUpdate))
+            if (usedFlags.Has(UpdateSetupFlags.EarlyUpdate))
                 earlyScriptsCollection.Add(script);
 
-            if (usedFlags.Has(CLRSetupFlags.DIMGUIDraw))
+            if (usedFlags.Has(UpdateSetupFlags.DIMGUIDraw))
                 guiScripts.Add(script);
         }
 
-        private void RemoveScript(CLRScript script, CLRSetupFlags usedFlags)
+        private void RemoveScript(SRScript script, UpdateSetupFlags usedFlags)
         {
-            if (usedFlags.Has(CLRSetupFlags.Update))
+            if (usedFlags.Has(UpdateSetupFlags.Update))
                 managedScriptsCollection.Remove(script);
 
-            if (usedFlags.Has(CLRSetupFlags.LateUpdate))
+            if (usedFlags.Has(UpdateSetupFlags.LateUpdate))
                 lateScriptsCollection.Remove(script);
 
-            if (usedFlags.Has(CLRSetupFlags.FixedUpdate))
+            if (usedFlags.Has(UpdateSetupFlags.FixedUpdate))
                 fixedScriptsCollection.Remove(script);
 
-            if (usedFlags.Has(CLRSetupFlags.PreUpdate))
+            if (usedFlags.Has(UpdateSetupFlags.PreUpdate))
                 preScriptsCollection.Remove(script);
 
-            if (usedFlags.Has(CLRSetupFlags.EarlyUpdate))
+            if (usedFlags.Has(UpdateSetupFlags.EarlyUpdate))
                 earlyScriptsCollection.Remove(script);
 
-            if (usedFlags.Has(CLRSetupFlags.DIMGUIDraw))
+            if (usedFlags.Has(UpdateSetupFlags.DIMGUIDraw))
                 guiScripts.Remove(script);
 
             mayNeedGC = true; 
         }
 
-        #endregion Script List Handeling
+#endregion Script List Handeling
 
-        #region Player Loop Modification
+#region Player Loop Modification
 
         private struct CLRPreUpdate { }
 
@@ -425,7 +433,7 @@ namespace HostGame
 
         internal static void DIMGUIUpdateCallback()
         {
-            CLRManager _instance = Instance;
+            UpdateManager _instance = Instance;
             for (int i = 0; i < _instance.guiScripts.Count; i++)
             {
 #if UNITY_ASSERTIONS
@@ -438,7 +446,7 @@ namespace HostGame
                 {
                     Debug.LogException(e);
                 }
-#else 
+#else
 
                     if (IsScriptActive(_instance.guiScripts[i]))
                         _instance.guiScripts[i].DrawDIMGUI();
@@ -446,6 +454,6 @@ namespace HostGame
             }
         }
 
-        #endregion Player Loop Modification
+#endregion Player Loop Modification
     }
 }
